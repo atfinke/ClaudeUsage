@@ -27,10 +27,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuHandlers()
 
         // Load accounts and setup usage tracking
-        if let accounts = accountManager?.accounts {
-            for account in accounts {
-                usageManager?.setupForAccount(account)
-            }
+        let accounts = accountManager?.accounts ?? []
+        for account in accounts {
+            usageManager?.setupForAccount(account)
         }
 
         // Update menu bar periodically

@@ -2,13 +2,6 @@
 
 A lightweight macOS menu bar app to monitor Claude AI usage across multiple accounts.
 
-## Quick Start
-
-```bash
-swift build -c release
-./.build/release/Usage
-```
-
 ## Adding Accounts
 
 1. Click menu bar → "Add Account"

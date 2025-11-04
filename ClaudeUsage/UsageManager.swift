@@ -233,7 +233,18 @@ class UsageManager {
             return "Setup"
         }
 
-        let displays = usageStates.map { state -> String in
+        // Sort states alphabetically by account name to match menu ordering
+        let sortedStates = usageStates.sorted { state1, state2 in
+            let account1 = accountManager?.accounts.first(where: { $0.id == state1.id })
+            let account2 = accountManager?.accounts.first(where: { $0.id == state2.id })
+
+            let name1 = account1?.name ?? state1.id
+            let name2 = account2?.name ?? state2.id
+
+            return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
+        }
+
+        let displays = sortedStates.map { state -> String in
             switch state.status {
             case .loading:
                 return "..."

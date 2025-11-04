@@ -173,6 +173,8 @@ class AddAccountViewController: NSViewController {
         if orgId != nil && sessionKey != nil {
             statusLabel.stringValue = "Parsed successfully!"
             statusLabel.textColor = .systemGreen
+            // Focus on account name field after successful parse
+            self.view.window?.makeFirstResponder(accountNameTextField)
         }
     }
 

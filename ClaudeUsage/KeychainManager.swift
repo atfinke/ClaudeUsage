@@ -10,22 +10,12 @@ final class KeychainManager: Sendable {
     private init() {}
 
     func save(key: String, data: Data) -> Bool {
-        // Create access control that doesn't require user interaction
-        guard let access = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleAfterFirstUnlock,
-            [],
-            nil
-        ) else {
-            return false
-        }
-
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
             kSecValueData as String: data,
-            kSecAttrAccessControl as String: access
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
         ]
 
         // Delete any existing item
@@ -33,7 +23,12 @@ final class KeychainManager: Sendable {
 
         // Add new item
         let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
+        if status != errSecSuccess {
+            print("[Keychain] Error saving \(key): Status code \(status)")
+            return false
+        }
+        print("[Keychain] Successfully saved \(key)")
+        return true
     }
 
     func load(key: String) -> Data? {
@@ -48,7 +43,13 @@ final class KeychainManager: Sendable {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        guard status == errSecSuccess else { return nil }
+        guard status == errSecSuccess else {
+            if status != errSecItemNotFound {
+                print("[Keychain] Error loading \(key): Status code \(status)")
+            }
+            return nil
+        }
+        print("[Keychain] Successfully loaded \(key)")
         return result as? Data
     }
 
@@ -60,6 +61,11 @@ final class KeychainManager: Sendable {
         ]
 
         let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess
+        if status != errSecSuccess && status != errSecItemNotFound {
+            print("[Keychain] Error deleting \(key): Status code \(status)")
+            return false
+        }
+        print("[Keychain] Successfully deleted \(key)")
+        return true
     }
 }

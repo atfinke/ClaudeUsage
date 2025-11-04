@@ -40,7 +40,17 @@ class MenuBuilder {
             menu.addItem(NSMenuItem.separator())
         } else {
             // Account sections with SwiftUI views
-            for state in usageStates {
+            let sortedStates = usageStates.sorted { state1, state2 in
+                let account1 = accountManager.accounts.first(where: { $0.id == state1.id })
+                let account2 = accountManager.accounts.first(where: { $0.id == state2.id })
+
+                let name1 = account1?.name ?? state1.id
+                let name2 = account2?.name ?? state2.id
+
+                return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
+            }
+
+            for state in sortedStates {
                 if let account = accountManager.accounts.first(where: { $0.id == state.id }) {
                     // SwiftUI usage view
                     let usageView = UsageMenuView(state: state, accountName: account.name)
