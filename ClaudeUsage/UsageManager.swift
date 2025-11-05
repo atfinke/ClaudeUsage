@@ -249,7 +249,11 @@ class UsageManager {
             case .loading:
                 return "..."
             case .success:
-                return "\(state.percent)%"
+                if state.percent >= 100 {
+                    return state.timeUntilReset
+                } else {
+                    return "\(state.percent)%"
+                }
             case .error:
                 return "ERROR"
             }
