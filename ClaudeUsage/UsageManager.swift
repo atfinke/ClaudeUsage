@@ -16,6 +16,7 @@ struct UsageState: Identifiable {
     let id: String // Account ID (orgId)
     var percent: Int = 0
     var timeUntilReset: String = "..."
+    var resetDate: Date? // When the usage period resets
     var status: Status = .loading
     var error: String?
     var timeToFull: String? // ETA to 100%
@@ -39,8 +40,9 @@ class UsageManager {
     private var accountManager: AccountManager?
 
     // Constants for tracking
-    let refreshInterval: TimeInterval = 15 // 15 seconds
+    let refreshInterval: TimeInterval = 30 // 30 seconds
     let historyDuration: TimeInterval = 300 // 5 minutes
+    let lowActivityThreshold: TimeInterval = 120 // 2 minutes - switch to timer-only updates
 
     func setAccountManager(_ manager: AccountManager) {
         self.accountManager = manager
@@ -79,15 +81,39 @@ class UsageManager {
     private func startRefreshTimer(for accountId: String) {
         refreshTimers[accountId]?.invalidate()
 
-        refreshTimers[accountId] = Timer.scheduledTimer(withTimeInterval: refreshInterval, repeats: true) { [weak self] _ in
+        let interval = refreshInterval(for: accountId)
+        refreshTimers[accountId] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateUsage(for: accountId)
             }
         }
     }
 
+    private func refreshInterval(for accountId: String) -> TimeInterval {
+        guard let state = usageStates.first(where: { $0.id == accountId }),
+              let resetDate = state.resetDate else {
+            return refreshInterval // Default to 30 seconds if no reset date available
+        }
+
+        let timeRemaining = resetDate.timeIntervalSince(Date())
+        if timeRemaining > lowActivityThreshold {
+            return 60 // 1 minute when > 20 minutes remaining
+        } else {
+            return refreshInterval // 30 seconds otherwise
+        }
+    }
+
     func updateUsage(for accountId: String) {
         guard let client = clients[accountId] else { return }
+
+        // Check if we're in low activity mode (>20 min remaining)
+        if shouldSkipNetworkRequest(for: accountId) {
+            // Just update the timer display without making a network request
+            Task { @MainActor in
+                self.updateTimerOnly(for: accountId)
+            }
+            return
+        }
 
         Task {
             do {
@@ -103,6 +129,26 @@ class UsageManager {
         }
     }
 
+    private func shouldSkipNetworkRequest(for accountId: String) -> Bool {
+        guard let state = usageStates.first(where: { $0.id == accountId }),
+              let resetDate = state.resetDate else {
+            return false // Default to making requests if no reset date available
+        }
+
+        let timeRemaining = resetDate.timeIntervalSince(Date())
+        return timeRemaining > lowActivityThreshold
+    }
+
+    private func updateTimerOnly(for accountId: String) {
+        guard let index = usageStates.firstIndex(where: { $0.id == accountId }),
+              let resetDate = usageStates[index].resetDate else { return }
+
+        let timeLeft = timeUntilReset(resetDate)
+        usageStates[index].timeUntilReset = timeLeft
+
+        logger.log("Account \(self.formatAccountId(accountId)): timer-only update, time remaining=\(timeLeft)")
+    }
+
     private func updateState(for accountId: String, usage: UsageData) {
         guard let index = usageStates.firstIndex(where: { $0.id == accountId }) else { return }
 
@@ -114,10 +160,12 @@ class UsageManager {
 
         let percent = Int(period.utilization)
         let timeLeft: String
+        let resetDate: Date?
         if let resetsAtString = period.resets_at {
-            let resetDate = parseDate(resetsAtString)
-            timeLeft = timeUntilReset(resetDate)
+            resetDate = parseDate(resetsAtString)
+            timeLeft = timeUntilReset(resetDate!)
         } else {
+            resetDate = nil
             timeLeft = "N/A"
         }
 
@@ -140,9 +188,13 @@ class UsageManager {
 
         usageStates[index].percent = percent
         usageStates[index].timeUntilReset = timeLeft
+        usageStates[index].resetDate = resetDate
         usageStates[index].timeToFull = timeToFull
         usageStates[index].status = .success
         usageStates[index].error = nil
+
+        // Restart timer with appropriate interval based on new data
+        startRefreshTimer(for: accountId)
     }
 
     private func updateState(for accountId: String, error: String) {
@@ -183,13 +235,13 @@ class UsageManager {
     private func calculateTimeToFull(for state: inout UsageState) -> String? {
         let accountId = state.id
         let percent = state.percent
-        let historyCount = state.history.count
 
         guard percent < 100 else {
             // Don't log when already at 100% - this is expected
             return nil
         }
 
+        let historyCount = state.history.count
         guard historyCount >= 2 else {
             logger.log("Account \(self.formatAccountId(accountId)): insufficient history for time-to-full calculation (historyCount=\(historyCount))")
             return nil
