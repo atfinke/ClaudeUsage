@@ -42,7 +42,7 @@ class UsageManager {
     // Constants for tracking
     let refreshInterval: TimeInterval = 30 // 30 seconds
     let historyDuration: TimeInterval = 300 // 5 minutes
-    let lowActivityThreshold: TimeInterval = 120 // 2 minutes - switch to timer-only updates
+    let lowActivityThreshold: TimeInterval = 120 // 2 minutes - threshold for refresh frequency
 
     func setAccountManager(_ manager: AccountManager) {
         self.accountManager = manager
@@ -97,7 +97,7 @@ class UsageManager {
 
         let timeRemaining = resetDate.timeIntervalSince(Date())
         if timeRemaining > lowActivityThreshold {
-            return 60 // 1 minute when > 20 minutes remaining
+            return 60 // 1 minute when > 2 minutes remaining (less frequent when plenty of time)
         } else {
             return refreshInterval // 30 seconds otherwise
         }
@@ -130,13 +130,12 @@ class UsageManager {
     }
 
     private func shouldSkipNetworkRequest(for accountId: String) -> Bool {
-        guard let state = usageStates.first(where: { $0.id == accountId }),
-              let resetDate = state.resetDate else {
-            return false // Default to making requests if no reset date available
+        guard let state = usageStates.first(where: { $0.id == accountId }) else {
+            return false // Default to making requests if no state available
         }
 
-        let timeRemaining = resetDate.timeIntervalSince(Date())
-        return timeRemaining > lowActivityThreshold
+        // Skip network requests if usage is at 100% (no need for frequent updates)
+        return state.percent >= 100
     }
 
     private func updateTimerOnly(for accountId: String) {
@@ -146,7 +145,7 @@ class UsageManager {
         let timeLeft = timeUntilReset(resetDate)
         usageStates[index].timeUntilReset = timeLeft
 
-        logger.log("Account \(self.formatAccountId(accountId)): timer-only update, time remaining=\(timeLeft)")
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): timer-only update, time remaining=\(timeLeft, privacy: .public)")
     }
 
     private func updateState(for accountId: String, usage: UsageData) {
@@ -170,7 +169,7 @@ class UsageManager {
         }
 
         // Log the fetched data
-        logger.log("Account \(self.formatAccountId(accountId)): usage=\(percent)%, resets=\(timeLeft)")
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): usage=\(percent, privacy: .public)%, resets=\(timeLeft, privacy: .public)")
 
         // Add data point to history
         let dataPoint = UsageDataPoint(timestamp: Date(), percent: percent)
@@ -180,15 +179,16 @@ class UsageManager {
         let cutoffTime = Date().addingTimeInterval(-historyDuration)
         usageStates[index].history.removeAll { $0.timestamp < cutoffTime }
 
-        // Calculate time to 100%
-        let timeToFull = calculateTimeToFull(for: &usageStates[index])
-        if let timeToFull = timeToFull {
-            logger.log("Account \(self.formatAccountId(accountId)): estimated time to full=\(timeToFull)")
-        }
-
         usageStates[index].percent = percent
         usageStates[index].timeUntilReset = timeLeft
         usageStates[index].resetDate = resetDate
+
+        // Calculate time to 100% AFTER state is updated
+        let timeToFull = calculateTimeToFull(for: &usageStates[index])
+        if let timeToFull = timeToFull {
+            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): estimated time to full=\(timeToFull, privacy: .public)")
+        }
+
         usageStates[index].timeToFull = timeToFull
         usageStates[index].status = .success
         usageStates[index].error = nil
@@ -199,7 +199,7 @@ class UsageManager {
 
     private func updateState(for accountId: String, error: String) {
         guard let index = usageStates.firstIndex(where: { $0.id == accountId }) else { return }
-        logger.error("Account \(self.formatAccountId(accountId)): error=\(error)")
+        logger.error("Account \(self.formatAccountId(accountId), privacy: .public): error=\(error, privacy: .public)")
         usageStates[index].status = .error
         usageStates[index].error = error
     }
@@ -243,7 +243,7 @@ class UsageManager {
 
         let historyCount = state.history.count
         guard historyCount >= 2 else {
-            logger.log("Account \(self.formatAccountId(accountId)): insufficient history for time-to-full calculation (historyCount=\(historyCount))")
+            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): insufficient history for time-to-full calculation (historyCount=\(historyCount, privacy: .public))")
             return nil
         }
 
@@ -253,7 +253,7 @@ class UsageManager {
         let relevantHistory = state.history.filter { $0.timestamp >= oldestTime }
 
         guard relevantHistory.count >= 2 else {
-            logger.log("Account \(self.formatAccountId(accountId)): filtered history too small (relevantHistoryCount=\(relevantHistory.count))")
+            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): filtered history too small (relevantHistoryCount=\(relevantHistory.count, privacy: .public))")
             return nil
         }
 
@@ -265,7 +265,7 @@ class UsageManager {
 
         let percentDiff = lastPoint.percent - firstPoint.percent
         guard percentDiff > 0 else {
-            logger.log("Account \(self.formatAccountId(accountId)): usage not increasing (percentDiff=\(percentDiff))")
+            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): usage not increasing (percentDiff=\(percentDiff, privacy: .public))")
             return nil // Not increasing
         }
 
@@ -273,7 +273,7 @@ class UsageManager {
         let percentRemaining = Double(100 - percent)
         let secondsToFull = percentRemaining / percentPerSecond
 
-        logger.log("Account \(self.formatAccountId(accountId)): time-to-full calculation: percentDiff=\(percentDiff), timeDiff=\(String(format: "%.1f", timeDiff))s, velocity=\(String(format: "%.3f", percentPerSecond))%/s, secondsToFull=\(String(format: "%.0f", secondsToFull))s")
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): time-to-full calculation: percentDiff=\(percentDiff, privacy: .public), timeDiff=\(String(format: "%.1f", timeDiff), privacy: .public)s, velocity=\(String(format: "%.3f", percentPerSecond), privacy: .public)%/s, secondsToFull=\(String(format: "%.0f", secondsToFull), privacy: .public)s")
 
         guard secondsToFull > 0 && secondsToFull < Double(Int.max) else { return nil }
 
