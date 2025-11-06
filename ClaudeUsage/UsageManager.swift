@@ -134,6 +134,16 @@ class UsageManager {
             return false // Default to making requests if no state available
         }
 
+        // Don't skip if timer has reached 0 (period has reset)
+        guard let resetDate = state.resetDate else {
+            return false
+        }
+
+        let timeRemaining = resetDate.timeIntervalSince(Date())
+        if timeRemaining <= 0 {
+            return false // Period has reset, need to fetch new data
+        }
+
         // Skip network requests if usage is at 100% (no need for frequent updates)
         return state.percent >= 100
     }
