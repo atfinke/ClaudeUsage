@@ -73,6 +73,25 @@ class UsageManager {
         return shortId
     }
 
+    private func detectPeriodReset(accountId: String, newResetDate: Date?, currentUsagePercent: Int) -> Bool {
+        // We need a reset date to detect period changes
+        guard let newResetDate = newResetDate else {
+            return false
+        }
+
+        // If we have a previous reset date, check if it changed
+        if let previousDate = previousResetDate[accountId] {
+            // When resets_at changes, the period has definitely reset
+            // We also check usage is low to confirm we're at the start of a new period
+            if newResetDate != previousDate && currentUsagePercent <= 5 {
+                logger.log("Account \(self.formatAccountId(accountId), privacy: .public): period reset detected (resets_at changed, usage at \(currentUsagePercent, privacy: .public)%)")
+                return true
+            }
+        }
+
+        return false
+    }
+
     private func scheduleResetNotification(for accountId: String) {
         // Add account to the set of accounts that need notification
         resetAccountsToNotify.insert(accountId)
@@ -262,37 +281,22 @@ class UsageManager {
             timeLeft = "N/A"
         }
 
-        // Detect usage period reset by checking if reset date changed and usage is low
-        var periodReset = false
-        if let resetDate = resetDate {
-            if let previousDate = previousResetDate[accountId] {
-                // Period reset if reset date changed and usage is low (indicating new period)
-                if resetDate != previousDate && percent <= 5 {
-                    periodReset = true
-                    logger.log("Account \(self.formatAccountId(accountId), privacy: .public): detected period reset (resetDate changed from \(previousDate, privacy: .public) to \(resetDate, privacy: .public), usage=\(percent, privacy: .public)%)")
-                }
-            }
-            // Update previous reset date
-            previousResetDate[accountId] = resetDate
-        }
+        // Detect period reset: The API's resets_at timestamp changes when a new period starts
+        // When this happens AND usage is low, we know the account just reset
+        let didPeriodReset = detectPeriodReset(
+            accountId: accountId,
+            newResetDate: resetDate,
+            currentUsagePercent: percent
+        )
 
-        // Alternative detection: if we don't have a reset date, fall back to usage drop
-        if !periodReset && previousResetDate[accountId] == nil {
-            if let previousPercent = previousUsagePercent[accountId] {
-                // If previous usage was > 0 and new usage is 0 (or very low), likely a reset
-                if previousPercent > 0 && percent <= 5 {
-                    periodReset = true
-                    logger.log("Account \(self.formatAccountId(accountId), privacy: .public): detected likely reset (previous=\(previousPercent, privacy: .public)%, current=\(percent, privacy: .public)%)")
-                }
-            }
-        }
-
-        // Send notification if reset detected
-        if periodReset {
+        if didPeriodReset {
             scheduleResetNotification(for: accountId)
         }
 
-        // Update previous usage for next comparison
+        // Update tracking for next check
+        if let resetDate = resetDate {
+            previousResetDate[accountId] = resetDate
+        }
         previousUsagePercent[accountId] = percent
 
         // Log the fetched data
