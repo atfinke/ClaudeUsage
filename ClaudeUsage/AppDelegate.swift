@@ -5,7 +5,7 @@ import UserNotifications
 // MARK: - App Delegate
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     var statusItem: NSStatusItem?
     var accountManager: AccountManager?
     var usageManager: UsageManager?
@@ -47,11 +47,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func requestNotificationPermissions() {
         let center = UNUserNotificationCenter.current()
+        center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { granted, error in
             if let error = error {
                 print("Notification permission error: \(error)")
             }
         }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Display notifications even when the app is in the foreground
+        completionHandler([.banner, .sound])
     }
 
     private func setupMenuBarButton() {
