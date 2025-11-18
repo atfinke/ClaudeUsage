@@ -40,6 +40,7 @@ class UsageManager {
     private var refreshTimers: [String: Timer] = [:]
     private var accountManager: AccountManager?
     private var previousUsagePercent: [String: Int] = [:] // Track previous usage to detect resets
+    private var previousResetDate: [String: Date] = [:] // Track previous reset date to detect period changes
 
     // Notification debouncing
     private var resetAccountsToNotify: Set<String> = []
@@ -50,6 +51,14 @@ class UsageManager {
     let historyDuration: TimeInterval = 300 // 5 minutes
     let lowActivityThreshold: TimeInterval = 120 // 2 minutes - threshold for refresh frequency
     let notificationDebounceInterval: TimeInterval = 30 // 30 seconds - debounce for reset notifications
+
+    deinit {
+        // Clean up all timers
+        for timer in refreshTimers.values {
+            timer.invalidate()
+        }
+        notificationDebounceTimer?.invalidate()
+    }
 
     func setAccountManager(_ manager: AccountManager) {
         self.accountManager = manager
@@ -83,9 +92,14 @@ class UsageManager {
 
         let content = UNMutableNotificationContent()
 
-        // Get account names
-        let accountNames = resetAccountsToNotify.compactMap { accountId in
-            accountManager?.accounts.first(where: { $0.id == accountId })?.name
+        // Get account names with fallback to account ID prefix
+        let accountNames = resetAccountsToNotify.map { accountId in
+            if let account = accountManager?.accounts.first(where: { $0.id == accountId }),
+               let name = account.name {
+                return name
+            } else {
+                return String(accountId.prefix(8)) + "..."
+            }
         }.sorted()
 
         let count = resetAccountsToNotify.count
@@ -137,8 +151,15 @@ class UsageManager {
         refreshTimers.removeValue(forKey: accountId)
         clients.removeValue(forKey: accountId)
         previousUsagePercent.removeValue(forKey: accountId)
+        previousResetDate.removeValue(forKey: accountId)
         resetAccountsToNotify.remove(accountId)
         usageStates.removeAll { $0.id == accountId }
+
+        // Cancel debounce timer if no more accounts need notification
+        if resetAccountsToNotify.isEmpty {
+            notificationDebounceTimer?.invalidate()
+            notificationDebounceTimer = nil
+        }
     }
 
     private func startRefreshTimer(for accountId: String) {
@@ -241,13 +262,34 @@ class UsageManager {
             timeLeft = "N/A"
         }
 
-        // Detect usage reset to 0
-        if let previousPercent = previousUsagePercent[accountId] {
-            // If previous usage was > 0 and new usage is 0 (or very low), the account has reset
-            if previousPercent > 0 && percent <= 5 {
-                logger.log("Account \(self.formatAccountId(accountId), privacy: .public): detected reset (previous=\(previousPercent, privacy: .public)%, current=\(percent, privacy: .public)%)")
-                scheduleResetNotification(for: accountId)
+        // Detect usage period reset by checking if reset date changed and usage is low
+        var periodReset = false
+        if let resetDate = resetDate {
+            if let previousDate = previousResetDate[accountId] {
+                // Period reset if reset date changed and usage is low (indicating new period)
+                if resetDate != previousDate && percent <= 5 {
+                    periodReset = true
+                    logger.log("Account \(self.formatAccountId(accountId), privacy: .public): detected period reset (resetDate changed from \(previousDate, privacy: .public) to \(resetDate, privacy: .public), usage=\(percent, privacy: .public)%)")
+                }
             }
+            // Update previous reset date
+            previousResetDate[accountId] = resetDate
+        }
+
+        // Alternative detection: if we don't have a reset date, fall back to usage drop
+        if !periodReset && previousResetDate[accountId] == nil {
+            if let previousPercent = previousUsagePercent[accountId] {
+                // If previous usage was > 0 and new usage is 0 (or very low), likely a reset
+                if previousPercent > 0 && percent <= 5 {
+                    periodReset = true
+                    logger.log("Account \(self.formatAccountId(accountId), privacy: .public): detected likely reset (previous=\(previousPercent, privacy: .public)%, current=\(percent, privacy: .public)%)")
+                }
+            }
+        }
+
+        // Send notification if reset detected
+        if periodReset {
+            scheduleResetNotification(for: accountId)
         }
 
         // Update previous usage for next comparison
