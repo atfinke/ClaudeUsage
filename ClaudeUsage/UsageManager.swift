@@ -165,7 +165,8 @@ class UsageManager {
 
         let interval = refreshInterval(for: accountId)
         refreshTimers[accountId] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            guard let self = self else { return }
+            Task { @MainActor [weak self] in
                 self?.updateUsage(for: accountId)
             }
         }

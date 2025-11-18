@@ -38,7 +38,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Update menu bar periodically
         menuUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+            guard let self = self else { return }
+            Task { @MainActor [weak self] in
                 self?.updateMenuBar()
             }
         }
