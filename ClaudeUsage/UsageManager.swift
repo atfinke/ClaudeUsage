@@ -1,5 +1,6 @@
 import Foundation
 import os
+import UserNotifications
 
 // MARK: - Logging
 
@@ -38,6 +39,7 @@ class UsageManager {
     private var clients: [String: ClaudeUsageClient] = [:]
     private var refreshTimers: [String: Timer] = [:]
     private var accountManager: AccountManager?
+    private var previousUsagePercent: [String: Int] = [:] // Track previous usage to detect resets
 
     // Constants for tracking
     let refreshInterval: TimeInterval = 30 // 30 seconds
@@ -55,6 +57,31 @@ class UsageManager {
             return "\(shortId) (\(name))"
         }
         return shortId
+    }
+
+    private func sendResetNotification(for accountId: String) {
+        let content = UNMutableNotificationContent()
+
+        // Get account name if available
+        let accountName = accountManager?.accounts.first(where: { $0.id == accountId })?.name ?? "Account"
+
+        content.title = "Claude Usage Reset"
+        content.body = "\(accountName) usage has reset to 0%"
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "usage-reset-\(accountId)-\(Date().timeIntervalSince1970)",
+            content: content,
+            trigger: nil // Deliver immediately
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                logger.error("Failed to send notification: \(error.localizedDescription, privacy: .public)")
+            } else {
+                logger.log("Sent reset notification for account \(self.formatAccountId(accountId), privacy: .public)")
+            }
+        }
     }
 
     func setupForAccount(_ account: Account) {
@@ -75,6 +102,7 @@ class UsageManager {
         refreshTimers[accountId]?.invalidate()
         refreshTimers.removeValue(forKey: accountId)
         clients.removeValue(forKey: accountId)
+        previousUsagePercent.removeValue(forKey: accountId)
         usageStates.removeAll { $0.id == accountId }
     }
 
@@ -177,6 +205,18 @@ class UsageManager {
             resetDate = nil
             timeLeft = "N/A"
         }
+
+        // Detect usage reset to 0
+        if let previousPercent = previousUsagePercent[accountId] {
+            // If previous usage was > 0 and new usage is 0 (or very low), the account has reset
+            if previousPercent > 0 && percent <= 5 {
+                logger.log("Account \(self.formatAccountId(accountId), privacy: .public): detected reset (previous=\(previousPercent, privacy: .public)%, current=\(percent, privacy: .public)%)")
+                sendResetNotification(for: accountId)
+            }
+        }
+
+        // Update previous usage for next comparison
+        previousUsagePercent[accountId] = percent
 
         // Log the fetched data
         logger.log("Account \(self.formatAccountId(accountId), privacy: .public): usage=\(percent, privacy: .public)%, resets=\(timeLeft, privacy: .public)")
