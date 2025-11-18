@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UserNotifications
 
 // MARK: - App Delegate
 
@@ -12,6 +13,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
+
+        // Request notification permissions
+        requestNotificationPermissions()
 
         // Initialize managers
         accountManager = AccountManager()
@@ -36,6 +40,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menuUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateMenuBar()
+            }
+        }
+    }
+
+    private func requestNotificationPermissions() {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+            if let error = error {
+                print("Notification permission error: \(error)")
             }
         }
     }

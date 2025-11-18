@@ -1,5 +1,6 @@
 import Foundation
 import os
+import UserNotifications
 
 // MARK: - Logging
 
@@ -38,11 +39,20 @@ class UsageManager {
     private var clients: [String: ClaudeUsageClient] = [:]
     private var refreshTimers: [String: Timer] = [:]
     private var accountManager: AccountManager?
+    // Scheduled notifications: Maps reset date -> set of account IDs that reset at that time
+    private var scheduledResetNotifications: [Date: Set<String>] = [:]
 
     // Constants for tracking
     let refreshInterval: TimeInterval = 30 // 30 seconds
     let historyDuration: TimeInterval = 300 // 5 minutes
     let lowActivityThreshold: TimeInterval = 120 // 2 minutes - threshold for refresh frequency
+
+    deinit {
+        // Clean up all timers
+        for timer in refreshTimers.values {
+            timer.invalidate()
+        }
+    }
 
     func setAccountManager(_ manager: AccountManager) {
         self.accountManager = manager
@@ -55,6 +65,64 @@ class UsageManager {
             return "\(shortId) (\(name))"
         }
         return shortId
+    }
+
+    private func scheduleOrUpdateResetNotification(for accountId: String, resetDate: Date) {
+        // Add this account to the set of accounts resetting at this time
+        if scheduledResetNotifications[resetDate] == nil {
+            scheduledResetNotifications[resetDate] = Set<String>()
+        }
+        scheduledResetNotifications[resetDate]?.insert(accountId)
+
+        let accountCount = scheduledResetNotifications[resetDate]?.count ?? 0
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(resetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
+
+        // Create notification content
+        let content = UNMutableNotificationContent()
+
+        // Get all account names for this reset time
+        let accountIds = scheduledResetNotifications[resetDate] ?? []
+        let accountNames = accountIds.map { id in
+            if let account = accountManager?.accounts.first(where: { $0.id == id }),
+               let name = account.name {
+                return name
+            } else {
+                return String(id.prefix(8)) + "..."
+            }
+        }.sorted()
+
+        let count = accountIds.count
+
+        if count == 1 {
+            content.title = "Claude Usage Reset"
+            content.body = "\(accountNames.first ?? "Account") usage has reset to 0%"
+        } else {
+            content.title = "Claude Usage Reset"
+            content.body = "\(count) accounts have reset to 0%: \(accountNames.joined(separator: ", "))"
+        }
+
+        content.sound = .default
+
+        // Schedule notification to fire at reset time
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: resetDate)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+
+        // Use resetDate timestamp as identifier so we can update/replace it
+        let identifier = "usage-reset-\(resetDate.timeIntervalSince1970)"
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: content,
+            trigger: trigger
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                logger.error("Failed to schedule notification: \(error.localizedDescription, privacy: .public)")
+            } else {
+                logger.log("Scheduled/updated reset notification for \(count, privacy: .public) account(s) at \(resetDate, privacy: .public)")
+            }
+        }
     }
 
     func setupForAccount(_ account: Account) {
@@ -76,6 +144,27 @@ class UsageManager {
         refreshTimers.removeValue(forKey: accountId)
         clients.removeValue(forKey: accountId)
         usageStates.removeAll { $0.id == accountId }
+
+        // Remove account from all scheduled notifications and update them
+        for (resetDate, var accountIds) in scheduledResetNotifications {
+            if accountIds.contains(accountId) {
+                accountIds.remove(accountId)
+
+                if accountIds.isEmpty {
+                    // No more accounts for this reset date, cancel the notification
+                    scheduledResetNotifications.removeValue(forKey: resetDate)
+                    let identifier = "usage-reset-\(resetDate.timeIntervalSince1970)"
+                    UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
+                    logger.log("Cancelled notification for \(resetDate, privacy: .public) (no accounts remaining)")
+                } else {
+                    // Update the notification with remaining accounts
+                    scheduledResetNotifications[resetDate] = accountIds
+                    if let remainingAccountId = accountIds.first {
+                        scheduleOrUpdateResetNotification(for: remainingAccountId, resetDate: resetDate)
+                    }
+                }
+            }
+        }
     }
 
     private func startRefreshTimer(for accountId: String) {
@@ -176,6 +265,11 @@ class UsageManager {
         } else {
             resetDate = nil
             timeLeft = "N/A"
+        }
+
+        // Schedule notification for when this account's usage period resets
+        if let resetDate = resetDate {
+            scheduleOrUpdateResetNotification(for: accountId, resetDate: resetDate)
         }
 
         // Log the fetched data
