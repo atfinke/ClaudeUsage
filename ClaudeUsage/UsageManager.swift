@@ -41,10 +41,15 @@ class UsageManager {
     private var accountManager: AccountManager?
     private var previousUsagePercent: [String: Int] = [:] // Track previous usage to detect resets
 
+    // Notification debouncing
+    private var resetAccountsToNotify: Set<String> = []
+    private var notificationDebounceTimer: Timer?
+
     // Constants for tracking
     let refreshInterval: TimeInterval = 30 // 30 seconds
     let historyDuration: TimeInterval = 300 // 5 minutes
     let lowActivityThreshold: TimeInterval = 120 // 2 minutes - threshold for refresh frequency
+    let notificationDebounceInterval: TimeInterval = 30 // 30 seconds - debounce for reset notifications
 
     func setAccountManager(_ manager: AccountManager) {
         self.accountManager = manager
@@ -59,18 +64,44 @@ class UsageManager {
         return shortId
     }
 
-    private func sendResetNotification(for accountId: String) {
+    private func scheduleResetNotification(for accountId: String) {
+        // Add account to the set of accounts that need notification
+        resetAccountsToNotify.insert(accountId)
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduled for reset notification (count=\(self.resetAccountsToNotify.count, privacy: .public))")
+
+        // Cancel existing timer and start new one to debounce
+        notificationDebounceTimer?.invalidate()
+        notificationDebounceTimer = Timer.scheduledTimer(withTimeInterval: notificationDebounceInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.sendCombinedResetNotification()
+            }
+        }
+    }
+
+    private func sendCombinedResetNotification() {
+        guard !resetAccountsToNotify.isEmpty else { return }
+
         let content = UNMutableNotificationContent()
 
-        // Get account name if available
-        let accountName = accountManager?.accounts.first(where: { $0.id == accountId })?.name ?? "Account"
+        // Get account names
+        let accountNames = resetAccountsToNotify.compactMap { accountId in
+            accountManager?.accounts.first(where: { $0.id == accountId })?.name
+        }.sorted()
 
-        content.title = "Claude Usage Reset"
-        content.body = "\(accountName) usage has reset to 0%"
+        let count = resetAccountsToNotify.count
+
+        if count == 1 {
+            content.title = "Claude Usage Reset"
+            content.body = "\(accountNames.first ?? "Account") usage has reset to 0%"
+        } else {
+            content.title = "Claude Usage Reset"
+            content.body = "\(count) accounts have reset to 0%: \(accountNames.joined(separator: ", "))"
+        }
+
         content.sound = .default
 
         let request = UNNotificationRequest(
-            identifier: "usage-reset-\(accountId)-\(Date().timeIntervalSince1970)",
+            identifier: "usage-reset-combined-\(Date().timeIntervalSince1970)",
             content: content,
             trigger: nil // Deliver immediately
         )
@@ -79,9 +110,12 @@ class UsageManager {
             if let error = error {
                 logger.error("Failed to send notification: \(error.localizedDescription, privacy: .public)")
             } else {
-                logger.log("Sent reset notification for account \(self.formatAccountId(accountId), privacy: .public)")
+                logger.log("Sent reset notification for \(count, privacy: .public) account(s): \(accountNames.joined(separator: ", "), privacy: .public)")
             }
         }
+
+        // Clear the set after sending
+        resetAccountsToNotify.removeAll()
     }
 
     func setupForAccount(_ account: Account) {
@@ -103,6 +137,7 @@ class UsageManager {
         refreshTimers.removeValue(forKey: accountId)
         clients.removeValue(forKey: accountId)
         previousUsagePercent.removeValue(forKey: accountId)
+        resetAccountsToNotify.remove(accountId)
         usageStates.removeAll { $0.id == accountId }
     }
 
@@ -211,7 +246,7 @@ class UsageManager {
             // If previous usage was > 0 and new usage is 0 (or very low), the account has reset
             if previousPercent > 0 && percent <= 5 {
                 logger.log("Account \(self.formatAccountId(accountId), privacy: .public): detected reset (previous=\(previousPercent, privacy: .public)%, current=\(percent, privacy: .public)%)")
-                sendResetNotification(for: accountId)
+                scheduleResetNotification(for: accountId)
             }
         }
 
