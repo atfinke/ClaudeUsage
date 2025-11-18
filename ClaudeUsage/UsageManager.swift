@@ -47,13 +47,6 @@ class UsageManager {
     let historyDuration: TimeInterval = 300 // 5 minutes
     let lowActivityThreshold: TimeInterval = 120 // 2 minutes - threshold for refresh frequency
 
-    deinit {
-        // Clean up all timers
-        for timer in refreshTimers.values {
-            timer.invalidate()
-        }
-    }
-
     func setAccountManager(_ manager: AccountManager) {
         self.accountManager = manager
     }
