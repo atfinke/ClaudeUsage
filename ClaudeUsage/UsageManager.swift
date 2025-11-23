@@ -61,20 +61,24 @@ class UsageManager {
     }
 
     private func scheduleOrUpdateResetNotification(for accountId: String, resetDate: Date) {
-        // Add this account to the set of accounts resetting at this time
-        if scheduledResetNotifications[resetDate] == nil {
-            scheduledResetNotifications[resetDate] = Set<String>()
-        }
-        scheduledResetNotifications[resetDate]?.insert(accountId)
+        // Normalize reset date to remove fractional seconds to prevent duplicate notifications
+        // when API returns slightly different timestamps between calls
+        let normalizedResetDate = Date(timeIntervalSince1970: floor(resetDate.timeIntervalSince1970))
 
-        let accountCount = scheduledResetNotifications[resetDate]?.count ?? 0
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(resetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
+        // Add this account to the set of accounts resetting at this time
+        if scheduledResetNotifications[normalizedResetDate] == nil {
+            scheduledResetNotifications[normalizedResetDate] = Set<String>()
+        }
+        scheduledResetNotifications[normalizedResetDate]?.insert(accountId)
+
+        let accountCount = scheduledResetNotifications[normalizedResetDate]?.count ?? 0
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(normalizedResetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
 
         // Create notification content
         let content = UNMutableNotificationContent()
 
         // Get all account names for this reset time
-        let accountIds = scheduledResetNotifications[resetDate] ?? []
+        let accountIds = scheduledResetNotifications[normalizedResetDate] ?? []
         let accountNames = accountIds.map { id in
             if let account = accountManager?.accounts.first(where: { $0.id == id }),
                let name = account.name {
@@ -98,11 +102,11 @@ class UsageManager {
 
         // Schedule notification to fire at reset time
         let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: resetDate)
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: normalizedResetDate)
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
 
-        // Use resetDate timestamp as identifier so we can update/replace it
-        let identifier = "usage-reset-\(resetDate.timeIntervalSince1970)"
+        // Use normalized timestamp as identifier so we can update/replace it
+        let identifier = "usage-reset-\(Int(normalizedResetDate.timeIntervalSince1970))"
         let request = UNNotificationRequest(
             identifier: identifier,
             content: content,
@@ -113,7 +117,7 @@ class UsageManager {
             if let error = error {
                 logger.error("Failed to schedule notification: \(error.localizedDescription, privacy: .public)")
             } else {
-                logger.log("Scheduled/updated reset notification for \(count, privacy: .public) account(s) at \(resetDate, privacy: .public)")
+                logger.log("Scheduled/updated reset notification for \(count, privacy: .public) account(s) at \(normalizedResetDate, privacy: .public)")
             }
         }
     }
@@ -146,7 +150,7 @@ class UsageManager {
                 if accountIds.isEmpty {
                     // No more accounts for this reset date, cancel the notification
                     scheduledResetNotifications.removeValue(forKey: resetDate)
-                    let identifier = "usage-reset-\(resetDate.timeIntervalSince1970)"
+                    let identifier = "usage-reset-\(Int(resetDate.timeIntervalSince1970))"
                     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
                     logger.log("Cancelled notification for \(resetDate, privacy: .public) (no accounts remaining)")
                 } else {
