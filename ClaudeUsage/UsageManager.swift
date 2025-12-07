@@ -41,6 +41,8 @@ class UsageManager {
     private var accountManager: AccountManager?
     // Scheduled notifications: Maps reset date -> set of account IDs that reset at that time
     private var scheduledResetNotifications: [Date: Set<String>] = [:]
+    // Track last scheduled reset time per account to avoid redundant notification updates
+    private var lastScheduledResetTime: [String: Date] = [:]
 
     // Constants for tracking
     let refreshInterval: TimeInterval = 30 // 30 seconds
@@ -67,6 +69,20 @@ class UsageManager {
         let normalizedSeconds = round(secondsSince1970 / 60.0) * 60.0
         let normalizedResetDate = Date(timeIntervalSince1970: normalizedSeconds)
 
+        // Skip if this account's reset time hasn't changed
+        if lastScheduledResetTime[accountId] == normalizedResetDate {
+            return
+        }
+
+        // Remove from old reset time group if it changed
+        if let oldResetTime = lastScheduledResetTime[accountId] {
+            scheduledResetNotifications[oldResetTime]?.remove(accountId)
+            if scheduledResetNotifications[oldResetTime]?.isEmpty == true {
+                scheduledResetNotifications.removeValue(forKey: oldResetTime)
+            }
+        }
+        lastScheduledResetTime[accountId] = normalizedResetDate
+
         // Add this account to the set of accounts resetting at this time
         if scheduledResetNotifications[normalizedResetDate] == nil {
             scheduledResetNotifications[normalizedResetDate] = Set<String>()
@@ -76,52 +92,7 @@ class UsageManager {
         let accountCount = scheduledResetNotifications[normalizedResetDate]?.count ?? 0
         logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(normalizedResetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
 
-        // Create notification content
-        let content = UNMutableNotificationContent()
-
-        // Get all account names for this reset time
-        let accountIds = scheduledResetNotifications[normalizedResetDate] ?? []
-        let accountNames = accountIds.map { id in
-            if let account = accountManager?.accounts.first(where: { $0.id == id }),
-               let name = account.name {
-                return name
-            } else {
-                return String(id.prefix(8)) + "..."
-            }
-        }.sorted()
-
-        let count = accountIds.count
-
-        if count == 1 {
-            content.title = "Claude Usage Reset"
-            content.body = "\(accountNames.first ?? "Account") usage has reset to 0%"
-        } else {
-            content.title = "Claude Usage Reset"
-            content.body = "\(count) accounts have reset to 0%: \(accountNames.joined(separator: ", "))"
-        }
-
-        content.sound = .default
-
-        // Schedule notification to fire at reset time
-        let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: normalizedResetDate)
-        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
-
-        // Use normalized timestamp as identifier so we can update/replace it
-        let identifier = "usage-reset-\(Int(normalizedResetDate.timeIntervalSince1970))"
-        let request = UNNotificationRequest(
-            identifier: identifier,
-            content: content,
-            trigger: trigger
-        )
-
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                logger.error("Failed to schedule notification: \(error.localizedDescription, privacy: .public)")
-            } else {
-                logger.log("Scheduled/updated reset notification for \(count, privacy: .public) account(s) at \(normalizedResetDate, privacy: .public)")
-            }
-        }
+        updateNotificationContent(for: normalizedResetDate)
     }
 
     func setupForAccount(_ account: Account) {
@@ -143,6 +114,7 @@ class UsageManager {
         refreshTimers.removeValue(forKey: accountId)
         clients.removeValue(forKey: accountId)
         usageStates.removeAll { $0.id == accountId }
+        lastScheduledResetTime.removeValue(forKey: accountId)
 
         // Remove account from all scheduled notifications and update them
         for (resetDate, var accountIds) in scheduledResetNotifications {
@@ -158,10 +130,44 @@ class UsageManager {
                 } else {
                     // Update the notification with remaining accounts
                     scheduledResetNotifications[resetDate] = accountIds
-                    if let remainingAccountId = accountIds.first {
-                        scheduleOrUpdateResetNotification(for: remainingAccountId, resetDate: resetDate)
-                    }
+                    updateNotificationContent(for: resetDate)
                 }
+            }
+        }
+    }
+
+    private func updateNotificationContent(for resetDate: Date) {
+        let accountIds = scheduledResetNotifications[resetDate] ?? []
+        guard !accountIds.isEmpty else { return }
+
+        let accountNames = accountIds.map { id in
+            if let account = accountManager?.accounts.first(where: { $0.id == id }),
+               let name = account.name {
+                return name
+            } else {
+                return String(id.prefix(8)) + "..."
+            }
+        }.sorted()
+
+        let content = UNMutableNotificationContent()
+        content.title = "Claude Usage Reset"
+        if accountNames.count == 1 {
+            content.body = "\(accountNames.first ?? "Account") usage has reset to 0%"
+        } else {
+            content.body = "\(accountNames.count) accounts have reset to 0%: \(accountNames.joined(separator: ", "))"
+        }
+        content.sound = .default
+
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: resetDate)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+
+        let identifier = "usage-reset-\(Int(resetDate.timeIntervalSince1970))"
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                logger.error("Failed to update notification: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
