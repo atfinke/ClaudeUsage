@@ -61,9 +61,11 @@ class UsageManager {
     }
 
     private func scheduleOrUpdateResetNotification(for accountId: String, resetDate: Date) {
-        // Normalize reset date to remove fractional seconds to prevent duplicate notifications
-        // when API returns slightly different timestamps between calls
-        let normalizedResetDate = Date(timeIntervalSince1970: floor(resetDate.timeIntervalSince1970))
+        // Normalize reset date to the nearest minute to prevent duplicate notifications
+        // when API returns timestamps that fluctuate by a few seconds between calls
+        let secondsSince1970 = resetDate.timeIntervalSince1970
+        let normalizedSeconds = round(secondsSince1970 / 60.0) * 60.0
+        let normalizedResetDate = Date(timeIntervalSince1970: normalizedSeconds)
 
         // Add this account to the set of accounts resetting at this time
         if scheduledResetNotifications[normalizedResetDate] == nil {
