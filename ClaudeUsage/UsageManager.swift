@@ -260,7 +260,6 @@ class UsageManager {
         let timeLeft: String
         let resetDate: Date?
         if let resetsAtString = period.resets_at {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): raw resets_at=\(resetsAtString, privacy: .public)")
             resetDate = parseDate(resetsAtString)
             timeLeft = timeUntilReset(resetDate!)
         } else {
