@@ -53,6 +53,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                 print("Notification permission error: \(error)")
             }
         }
+
+        // Clear any stale usage-reset notifications that may have been scheduled
+        // with old (non-normalized) identifiers to prevent duplicates
+        center.getPendingNotificationRequests { requests in
+            let staleIdentifiers = requests
+                .map { $0.identifier }
+                .filter { $0.hasPrefix("usage-reset-") }
+
+            if !staleIdentifiers.isEmpty {
+                center.removePendingNotificationRequests(withIdentifiers: staleIdentifiers)
+                print("Cleared \(staleIdentifiers.count) stale usage-reset notification(s)")
+            }
+        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate
