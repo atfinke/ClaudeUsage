@@ -159,7 +159,8 @@ class UsageManager {
         content.sound = .default
 
         let calendar = Calendar.current
-        let components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: resetDate)
+        var components = calendar.dateComponents([.year, .month, .day, .hour, .minute, .second], from: resetDate)
+        components.second = 0 // Ensure notification fires at the start of the minute
         let trigger = UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
 
         let identifier = "usage-reset-\(Int(resetDate.timeIntervalSince1970))"
