@@ -6,8 +6,8 @@ struct MenuBarProgressView: View {
     let usageManager: UsageManager
     let accountManager: AccountManager
 
-    private let circleSize: CGFloat = 11
-    private let lineWidth: CGFloat = 2.5
+    private let circleSize: CGFloat = 16
+    private let lineWidth: CGFloat = 3
 
     var body: some View {
         HStack(spacing: 0) {
@@ -93,13 +93,15 @@ struct CircularProgressIndicator: View {
 
     var body: some View {
         ZStack {
-            // Background circle
+            // Background circle (inset so stroke stays within frame)
             Circle()
+                .inset(by: lineWidth / 2)
                 .stroke(Color.primary.opacity(0.3), lineWidth: lineWidth)
 
             // Predicted progress arc (ghost/shadow)
             if predictedProgress > 0 {
                 Circle()
+                    .inset(by: lineWidth / 2)
                     .trim(from: 0, to: predictedProgress)
                     .stroke(
                         Color.primary.opacity(0.5),
@@ -111,6 +113,7 @@ struct CircularProgressIndicator: View {
 
             // Current progress arc (solid)
             Circle()
+                .inset(by: lineWidth / 2)
                 .trim(from: 0, to: currentProgress)
                 .stroke(
                     Color.primary,
