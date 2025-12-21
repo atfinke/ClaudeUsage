@@ -16,6 +16,7 @@ struct UsageDataPoint {
 struct UsageState: Identifiable {
     let id: String // Account ID (orgId)
     var percent: Int = 0
+    var predictedPercent: Int? // Estimated percent based on current velocity
     var timeUntilReset: String = "..."
     var resetDate: Date? // When the usage period resets
     var status: Status = .loading
@@ -300,7 +301,14 @@ class UsageManager {
             logger.log("Account \(self.formatAccountId(accountId), privacy: .public): estimated time to full=\(timeToFull, privacy: .public)")
         }
 
+        // Calculate predicted percent based on velocity
+        let predictedPercent = calculatePredictedPercent(for: usageStates[index])
+        if let predicted = predictedPercent {
+            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): predicted percent=\(predicted, privacy: .public)%")
+        }
+
         usageStates[index].timeToFull = timeToFull
+        usageStates[index].predictedPercent = predictedPercent
         usageStates[index].status = .success
         usageStates[index].error = nil
 
@@ -343,6 +351,30 @@ class UsageManager {
         return formatDuration(timeInterval)
     }
 
+    /// Returns velocity in percent per second, or nil if not calculable
+    private func calculateVelocity(for state: UsageState) -> Double? {
+        let historyCount = state.history.count
+        guard historyCount >= 2 else { return nil }
+
+        // Get data from the last 5 minutes
+        let now = Date()
+        let oldestTime = now.addingTimeInterval(-historyDuration)
+        let relevantHistory = state.history.filter { $0.timestamp >= oldestTime }
+
+        guard relevantHistory.count >= 2 else { return nil }
+
+        let firstPoint = relevantHistory.first!
+        let lastPoint = relevantHistory.last!
+        let timeDiff = lastPoint.timestamp.timeIntervalSince(firstPoint.timestamp)
+
+        guard timeDiff > 0 else { return nil }
+
+        let percentDiff = lastPoint.percent - firstPoint.percent
+        guard percentDiff > 0 else { return nil } // Not increasing
+
+        return Double(percentDiff) / timeDiff
+    }
+
     private func calculateTimeToFull(for state: inout UsageState) -> String? {
         let accountId = state.id
         let percent = state.percent
@@ -352,75 +384,35 @@ class UsageManager {
             return nil
         }
 
-        let historyCount = state.history.count
-        guard historyCount >= 2 else {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): insufficient history for time-to-full calculation (historyCount=\(historyCount, privacy: .public))")
+        guard let percentPerSecond = calculateVelocity(for: state) else {
+            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): insufficient data for time-to-full calculation")
             return nil
         }
 
-        // Get data from the last 5 minutes
-        let now = Date()
-        let oldestTime = now.addingTimeInterval(-historyDuration)
-        let relevantHistory = state.history.filter { $0.timestamp >= oldestTime }
-
-        guard relevantHistory.count >= 2 else {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): filtered history too small (relevantHistoryCount=\(relevantHistory.count, privacy: .public))")
-            return nil
-        }
-
-        let firstPoint = relevantHistory.first!
-        let lastPoint = relevantHistory.last!
-        let timeDiff = lastPoint.timestamp.timeIntervalSince(firstPoint.timestamp)
-
-        guard timeDiff > 0 else { return nil }
-
-        let percentDiff = lastPoint.percent - firstPoint.percent
-        guard percentDiff > 0 else {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): usage not increasing (percentDiff=\(percentDiff, privacy: .public))")
-            return nil // Not increasing
-        }
-
-        let percentPerSecond = Double(percentDiff) / timeDiff
         let percentRemaining = Double(100 - percent)
         let secondsToFull = percentRemaining / percentPerSecond
 
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): time-to-full calculation: percentDiff=\(percentDiff, privacy: .public), timeDiff=\(String(format: "%.1f", timeDiff), privacy: .public)s, velocity=\(String(format: "%.3f", percentPerSecond), privacy: .public)%/s, secondsToFull=\(String(format: "%.0f", secondsToFull), privacy: .public)s")
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): time-to-full calculation: velocity=\(String(format: "%.3f", percentPerSecond), privacy: .public)%/s, secondsToFull=\(String(format: "%.0f", secondsToFull), privacy: .public)s")
 
         guard secondsToFull > 0 && secondsToFull < Double(Int.max) else { return nil }
 
         return formatDuration(secondsToFull)
     }
 
-    func menuBarTitle() -> String {
-        if usageStates.isEmpty {
-            return "Setup"
-        }
+    /// Prediction window in seconds (configurable)
+    private let predictionWindow: TimeInterval = 600 // 10 minutes
 
-        // Sort states alphabetically by account name to match menu ordering
-        let sortedStates = usageStates.sorted { state1, state2 in
-            let account1 = accountManager?.accounts.first(where: { $0.id == state1.id })
-            let account2 = accountManager?.accounts.first(where: { $0.id == state2.id })
+    private func calculatePredictedPercent(for state: UsageState) -> Int? {
+        let percent = state.percent
 
-            let name1 = account1?.name ?? state1.id
-            let name2 = account2?.name ?? state2.id
+        guard percent < 100 else { return nil }
 
-            return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
-        }
+        guard let percentPerSecond = calculateVelocity(for: state) else { return nil }
 
-        let displays = sortedStates.map { state -> String in
-            switch state.status {
-            case .loading:
-                return "..."
-            case .success:
-                if state.percent >= 100 {
-                    return state.timeUntilReset
-                } else {
-                    return "\(state.percent)%"
-                }
-            case .error:
-                return "ERROR"
-            }
-        }
-        return displays.joined(separator: " | ")
+        let predictedIncrease = percentPerSecond * predictionWindow
+        let predictedPercent = Double(percent) + predictedIncrease
+
+        // Cap at 100
+        return min(100, Int(predictedPercent))
     }
 }

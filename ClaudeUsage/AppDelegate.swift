@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import SwiftUI
 import UserNotifications
 
 // MARK: - App Delegate
@@ -10,6 +11,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     var accountManager: AccountManager?
     var usageManager: UsageManager?
     var menuUpdateTimer: Timer?
+    var hostingView: NSHostingView<MenuBarProgressView>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
@@ -67,9 +69,24 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     private func setupMenuBarButton() {
-        guard let button = statusItem?.button else { return }
-        button.title = "Claude"
-        button.font = NSFont.systemFont(ofSize: 13, weight: .regular)
+        guard let button = statusItem?.button,
+              let usageManager = usageManager,
+              let accountManager = accountManager else { return }
+
+        // Create SwiftUI view for circular progress indicators
+        let progressView = MenuBarProgressView(
+            usageManager: usageManager,
+            accountManager: accountManager
+        )
+
+        hostingView = NSHostingView(rootView: progressView)
+        hostingView?.frame = NSRect(x: 0, y: 0, width: 100, height: 22)
+
+        // Add the hosting view to the button
+        if let hostingView = hostingView {
+            button.addSubview(hostingView)
+            button.frame = hostingView.frame
+        }
     }
 
     private func setupMenuHandlers() {
@@ -87,8 +104,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     }
 
     private func updateMenuBar() {
-        guard let usageManager = usageManager else { return }
-        statusItem?.button?.title = usageManager.menuBarTitle()
+        guard let hostingView = hostingView,
+              let button = statusItem?.button else { return }
+
+        // Let SwiftUI calculate the intrinsic size, add buffer to prevent clipping
+        let fittingSize = hostingView.fittingSize
+        let width = ceil(fittingSize.width) + 4
+        hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 22)
+        button.frame = hostingView.frame
+
         updateMenu()
     }
 
