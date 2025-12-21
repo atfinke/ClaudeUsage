@@ -1,5 +1,10 @@
 import Foundation
+import os
 import Security
+
+// MARK: - Logging
+
+private let logger = Logger(subsystem: "com.andrewfinke.ClaudeUsage", category: "Keychain")
 
 // MARK: - Keychain Manager
 
@@ -24,10 +29,10 @@ final class KeychainManager: Sendable {
         // Add new item
         let status = SecItemAdd(query as CFDictionary, nil)
         if status != errSecSuccess {
-            print("[Keychain] Error saving \(key): Status code \(status)")
+            logger.error("Error saving \(key, privacy: .public): Status code \(status, privacy: .public)")
             return false
         }
-        print("[Keychain] Successfully saved \(key)")
+        logger.log("Successfully saved \(key, privacy: .public)")
         return true
     }
 
@@ -45,11 +50,11 @@ final class KeychainManager: Sendable {
 
         guard status == errSecSuccess else {
             if status != errSecItemNotFound {
-                print("[Keychain] Error loading \(key): Status code \(status)")
+                logger.error("Error loading \(key, privacy: .public): Status code \(status, privacy: .public)")
             }
             return nil
         }
-        print("[Keychain] Successfully loaded \(key)")
+        logger.log("Successfully loaded \(key, privacy: .public)")
         return result as? Data
     }
 
@@ -62,10 +67,10 @@ final class KeychainManager: Sendable {
 
         let status = SecItemDelete(query as CFDictionary)
         if status != errSecSuccess && status != errSecItemNotFound {
-            print("[Keychain] Error deleting \(key): Status code \(status)")
+            logger.error("Error deleting \(key, privacy: .public): Status code \(status, privacy: .public)")
             return false
         }
-        print("[Keychain] Successfully deleted \(key)")
+        logger.log("Successfully deleted \(key, privacy: .public)")
         return true
     }
 }

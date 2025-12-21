@@ -17,6 +17,7 @@ struct UsageState: Identifiable {
     let id: String // Account ID (orgId)
     var percent: Int = 0
     var predictedPercent: Int? // Estimated percent based on current velocity
+    var resetProgress: Int? // When at 100%: percentage of reset window remaining (100 = just hit limit, 0 = about to reset)
     var timeUntilReset: String = "..."
     var resetDate: Date? // When the usage period resets
     var status: Status = .loading
@@ -37,6 +38,7 @@ struct UsageState: Identifiable {
 @Observable
 class UsageManager {
     var usageStates: [UsageState] = []
+    var onStateChange: (() -> Void)?
     private var clients: [String: ClaudeUsageClient] = [:]
     private var refreshTimers: [String: Timer] = [:]
     private var accountManager: AccountManager?
@@ -45,10 +47,29 @@ class UsageManager {
     // Track last scheduled reset time per account to avoid redundant notification updates
     private var lastScheduledResetTime: [String: Date] = [:]
 
-    // Constants for tracking
-    let refreshInterval: TimeInterval = 30 // 30 seconds
-    let historyDuration: TimeInterval = 300 // 5 minutes
-    let lowActivityThreshold: TimeInterval = 120 // 2 minutes - threshold for refresh frequency
+    // MARK: Constants
+
+    /// How often to poll the API when close to reset time (30s).
+    /// Used when time until reset is below `idleThreshold`. Also the fallback
+    /// when reset date is unknown.
+    private let activeRefreshInterval: TimeInterval = 30
+
+    /// How often to poll the API when far from reset time (60s).
+    /// Used when time until reset exceeds `idleThreshold`.
+    private let idleRefreshInterval: TimeInterval = 60
+
+    /// Threshold for switching between active and idle polling (2 min).
+    /// Below this: poll every `activeRefreshInterval` for responsive updates.
+    /// Above this: poll every `idleRefreshInterval` to reduce API calls.
+    private let idleThreshold: TimeInterval = 120
+
+    /// Window of historical data points used to calculate usage velocity (5 min).
+    /// Longer windows smooth out spikes but are slower to reflect rate changes.
+    private let historyDuration: TimeInterval = 300
+
+    /// Claude's usage reset window (5 hours). Used to calculate countdown progress
+    /// when at 100% utilization (how much of the wait remains).
+    private let resetWindowDuration: TimeInterval = 5 * 60 * 60
 
     func setAccountManager(_ manager: AccountManager) {
         self.accountManager = manager
@@ -137,6 +158,12 @@ class UsageManager {
         }
     }
 
+    func refreshAllAccounts() {
+        for state in usageStates {
+            updateUsage(for: state.id)
+        }
+    }
+
     private func updateNotificationContent(for resetDate: Date) {
         let accountIds = scheduledResetNotifications[resetDate] ?? []
         guard !accountIds.isEmpty else { return }
@@ -178,32 +205,34 @@ class UsageManager {
         refreshTimers[accountId]?.invalidate()
 
         let interval = refreshInterval(for: accountId)
-        refreshTimers[accountId] = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             Task { @MainActor [weak self] in
                 self?.updateUsage(for: accountId)
             }
         }
+        timer.tolerance = interval * 0.1 // 10% tolerance for battery efficiency
+        refreshTimers[accountId] = timer
     }
 
     private func refreshInterval(for accountId: String) -> TimeInterval {
         guard let state = usageStates.first(where: { $0.id == accountId }),
               let resetDate = state.resetDate else {
-            return refreshInterval // Default to 30 seconds if no reset date available
+            return activeRefreshInterval
         }
 
         let timeRemaining = resetDate.timeIntervalSince(Date())
-        if timeRemaining > lowActivityThreshold {
-            return 60 // 1 minute when > 2 minutes remaining (less frequent when plenty of time)
+        if timeRemaining > idleThreshold {
+            return idleRefreshInterval
         } else {
-            return refreshInterval // 30 seconds otherwise
+            return activeRefreshInterval
         }
     }
 
     func updateUsage(for accountId: String) {
         guard let client = clients[accountId] else { return }
 
-        // Check if we're in low activity mode (>20 min remaining)
+        // Skip network when at 100% - just update countdown timer locally
         if shouldSkipNetworkRequest(for: accountId) {
             // Just update the timer display without making a network request
             Task { @MainActor in
@@ -252,13 +281,16 @@ class UsageManager {
         let timeLeft = timeUntilReset(resetDate)
         usageStates[index].timeUntilReset = timeLeft
 
+        // Recalculate reset progress (countdown) since it changes over time
+        usageStates[index].resetProgress = calculateResetProgress(for: usageStates[index])
+
         logger.log("Account \(self.formatAccountId(accountId), privacy: .public): timer-only update, time remaining=\(timeLeft, privacy: .public)")
     }
 
     private func updateState(for accountId: String, usage: UsageData) {
         guard let index = usageStates.firstIndex(where: { $0.id == accountId }) else { return }
 
-        guard let period = usage.five_hour else {
+        guard let period = usage.fiveHour else {
             usageStates[index].status = .error
             usageStates[index].error = "No usage data"
             return
@@ -267,7 +299,7 @@ class UsageManager {
         let percent = Int(period.utilization)
         let timeLeft: String
         let resetDate: Date?
-        if let resetsAtString = period.resets_at {
+        if let resetsAtString = period.resetsAt {
             resetDate = parseDate(resetsAtString)
             timeLeft = timeUntilReset(resetDate!)
         } else {
@@ -307,13 +339,19 @@ class UsageManager {
             logger.log("Account \(self.formatAccountId(accountId), privacy: .public): predicted percent=\(predicted, privacy: .public)%")
         }
 
+        // Calculate reset progress (countdown when at 100%)
+        let resetProgress = calculateResetProgress(for: usageStates[index])
+
         usageStates[index].timeToFull = timeToFull
         usageStates[index].predictedPercent = predictedPercent
+        usageStates[index].resetProgress = resetProgress
         usageStates[index].status = .success
         usageStates[index].error = nil
 
         // Restart timer with appropriate interval based on new data
         startRefreshTimer(for: accountId)
+
+        onStateChange?()
     }
 
     private func updateState(for accountId: String, error: String) {
@@ -321,6 +359,8 @@ class UsageManager {
         logger.error("Account \(self.formatAccountId(accountId), privacy: .public): error=\(error, privacy: .public)")
         usageStates[index].status = .error
         usageStates[index].error = error
+
+        onStateChange?()
     }
 
     private func parseDate(_ dateString: String) -> Date {
@@ -399,8 +439,9 @@ class UsageManager {
         return formatDuration(secondsToFull)
     }
 
-    /// Prediction window in seconds (configurable)
-    private let predictionWindow: TimeInterval = 600 // 10 minutes
+    /// How far ahead to project usage based on current velocity (15 min).
+    /// Shown as a "ghost" arc on the circular progress indicator.
+    private let predictionWindow: TimeInterval = 900
 
     private func calculatePredictedPercent(for state: UsageState) -> Int? {
         let percent = state.percent
@@ -414,5 +455,21 @@ class UsageManager {
 
         // Cap at 100
         return min(100, Int(predictedPercent))
+    }
+
+    /// Calculate reset progress (countdown) when at 100%
+    /// Returns percentage of reset window remaining: 100 = just hit limit, 0 = about to reset
+    private func calculateResetProgress(for state: UsageState) -> Int? {
+        guard state.percent >= 100,
+              let resetDate = state.resetDate else { return nil }
+
+        let now = Date()
+        let timeRemaining = resetDate.timeIntervalSince(now)
+
+        guard timeRemaining > 0 else { return 0 }
+
+        // Calculate what percentage of the 5-hour window remains
+        let progress = (timeRemaining / resetWindowDuration) * 100.0
+        return min(100, max(0, Int(progress)))
     }
 }

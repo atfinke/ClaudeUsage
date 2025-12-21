@@ -7,15 +7,10 @@ import Foundation
 @MainActor
 class MenuDelegate: NSObject {
     static var addAccountHandler: (() -> Void)?
-    static var refreshHandler: (() -> Void)?
     static var resetHandler: (() -> Void)?
 
     @objc static func addAccount() {
         addAccountHandler?()
-    }
-
-    @objc static func refreshNow() {
-        refreshHandler?()
     }
 
     @objc static func reset() {
@@ -27,7 +22,7 @@ class MenuDelegate: NSObject {
 
 class MenuBuilder {
     @MainActor
-    static func buildMenu(usageStates: [UsageState], accountManager: AccountManager, usageManager: UsageManager, onAddAccount: @escaping () -> Void, onRefresh: @escaping () -> Void, onReset: @escaping () -> Void) -> NSMenu {
+    static func buildMenu(usageStates: [UsageState], accountManager: AccountManager, usageManager: UsageManager) -> NSMenu {
         let menu = NSMenu()
 
         // Empty state or account sections
@@ -40,15 +35,7 @@ class MenuBuilder {
             menu.addItem(NSMenuItem.separator())
         } else {
             // Account sections with SwiftUI views
-            let sortedStates = usageStates.sorted { state1, state2 in
-                let account1 = accountManager.accounts.first(where: { $0.id == state1.id })
-                let account2 = accountManager.accounts.first(where: { $0.id == state2.id })
-
-                let name1 = account1?.name ?? state1.id
-                let name2 = account2?.name ?? state2.id
-
-                return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
-            }
+            let sortedStates = accountManager.sortedByDisplayName(usageStates)
 
             for state in sortedStates {
                 if let account = accountManager.accounts.first(where: { $0.id == state.id }) {
@@ -82,25 +69,15 @@ class MenuBuilder {
         )
         addAccountItem.target = MenuDelegate.self
 
-        // Refresh button (only if accounts exist)
-        if !usageStates.isEmpty {
-            let refreshItem = menu.addItem(
-                withTitle: "Refresh Now",
-                action: #selector(MenuDelegate.refreshNow),
-                keyEquivalent: "r"
-            )
-            refreshItem.target = MenuDelegate.self
-        }
-
-        menu.addItem(NSMenuItem.separator())
-
         // Reset button
         let resetItem = menu.addItem(
-            withTitle: "Reset All Accounts",
+            withTitle: "Reset Accounts",
             action: #selector(MenuDelegate.reset),
             keyEquivalent: ""
         )
         resetItem.target = MenuDelegate.self
+
+        menu.addItem(NSMenuItem.separator())
 
         // Quit
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

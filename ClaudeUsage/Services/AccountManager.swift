@@ -56,4 +56,22 @@ class AccountManager {
         accounts.removeAll { $0.id == id }
         saveAccounts()
     }
+
+    /// Returns the display name for an account (friendly name or truncated ID)
+    func displayName(for accountId: String) -> String {
+        if let account = accounts.first(where: { $0.id == accountId }),
+           let name = account.name {
+            return name
+        }
+        return accountId
+    }
+
+    /// Sorts usage states by account display name
+    func sortedByDisplayName(_ states: [UsageState]) -> [UsageState] {
+        states.sorted { state1, state2 in
+            let name1 = displayName(for: state1.id)
+            let name2 = displayName(for: state2.id)
+            return name1.localizedCaseInsensitiveCompare(name2) == .orderedAscending
+        }
+    }
 }

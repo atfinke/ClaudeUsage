@@ -6,11 +6,10 @@ import UserNotifications
 // MARK: - App Delegate
 
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem?
     var accountManager: AccountManager?
     var usageManager: UsageManager?
-    var menuUpdateTimer: Timer?
     var hostingView: NSHostingView<MenuBarProgressView>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -23,6 +22,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         accountManager = AccountManager()
         usageManager = UsageManager()
         usageManager?.setAccountManager(accountManager!)
+        usageManager?.onStateChange = { [weak self] in
+            self?.updateMenuBar()
+        }
 
         // Setup menu bar
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -36,14 +38,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         let accounts = accountManager?.accounts ?? []
         for account in accounts {
             usageManager?.setupForAccount(account)
-        }
-
-        // Update menu bar periodically
-        menuUpdateTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            Task { @MainActor [weak self] in
-                self?.updateMenuBar()
-            }
         }
     }
 
@@ -64,6 +58,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
+        // Refresh usage data when reset notification fires
+        Task { @MainActor [weak self] in
+            self?.usageManager?.refreshAllAccounts()
+        }
+
         // Display notifications even when the app is in the foreground
         completionHandler([.banner, .sound])
     }
@@ -94,10 +93,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
             self?.showAddAccountDialog()
         }
 
-        MenuDelegate.refreshHandler = { [weak self] in
-            self?.refreshAllAccounts()
-        }
-
         MenuDelegate.resetHandler = { [weak self] in
             self?.resetAllAccounts()
         }
@@ -113,27 +108,40 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         hostingView.frame = NSRect(x: 0, y: 0, width: width, height: 22)
         button.frame = hostingView.frame
 
-        updateMenu()
+        // Create menu with delegate (content built lazily in menuWillOpen)
+        if statusItem?.menu == nil {
+            let menu = NSMenu()
+            menu.delegate = self
+            statusItem?.menu = menu
+        }
     }
 
-    private func updateMenu() {
-        guard let accountManager = accountManager, let usageManager = usageManager else { return }
+    // MARK: - NSMenuDelegate
 
-        let menu = MenuBuilder.buildMenu(
-            usageStates: usageManager.usageStates,
-            accountManager: accountManager,
-            usageManager: usageManager,
-            onAddAccount: { [weak self] in self?.showAddAccountDialog() },
-            onRefresh: { [weak self] in self?.refreshAllAccounts() },
-            onReset: { [weak self] in self?.resetAllAccounts() }
-        )
+    nonisolated func menuWillOpen(_ menu: NSMenu) {
+        // Run synchronously on MainActor since menu needs items before returning
+        MainActor.assumeIsolated {
+            guard let accountManager = accountManager, let usageManager = usageManager else { return }
 
-        statusItem?.menu = menu
+            menu.removeAllItems()
+
+            let builtMenu = MenuBuilder.buildMenu(
+                usageStates: usageManager.usageStates,
+                accountManager: accountManager,
+                usageManager: usageManager
+            )
+
+            // Copy items from built menu to the existing menu
+            for item in builtMenu.items {
+                builtMenu.removeItem(item)
+                menu.addItem(item)
+            }
+        }
     }
 
     private func showAddAccountDialog() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 280),
+            contentRect: NSRect(x: 0, y: 0, width: 350, height: 340),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
@@ -154,14 +162,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
 
         NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-    }
-
-    private func refreshAllAccounts() {
-        guard let usageManager = usageManager else { return }
-
-        for state in usageManager.usageStates {
-            usageManager.updateUsage(for: state.id)
-        }
     }
 
     private func resetAllAccounts() {

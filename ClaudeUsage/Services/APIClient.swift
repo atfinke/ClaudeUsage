@@ -39,7 +39,9 @@ actor ClaudeUsageClient {
             throw APIError.httpError(code: httpResponse.statusCode)
         }
 
-        return try JSONDecoder().decode(UsageData.self, from: data)
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        return try decoder.decode(UsageData.self, from: data)
     }
 }
 

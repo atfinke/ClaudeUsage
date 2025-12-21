@@ -55,7 +55,7 @@ class AddAccountViewController: NSViewController {
 
     override func loadView() {
         view = NSView()
-        view.frame = NSRect(x: 0, y: 0, width: 500, height: 380)
+        view.frame = NSRect(x: 0, y: 0, width: 350, height: 340)
 
         setupUI()
     }
@@ -65,12 +65,12 @@ class AddAccountViewController: NSViewController {
         let instructionsLabel = NSTextField(labelWithString: "Get the 'usage' request cURL from Inspector, then paste it below")
         instructionsLabel.font = NSFont.systemFont(ofSize: 12)
         instructionsLabel.textColor = .secondaryLabelColor
-        instructionsLabel.frame = NSRect(x: 20, y: 330, width: 460, height: 32)
+        instructionsLabel.frame = NSRect(x: 20, y: 290, width: 310, height: 32)
         instructionsLabel.cell?.wraps = true
         view.addSubview(instructionsLabel)
 
         // Open Settings Button
-        openSettingsButton.frame = NSRect(x: 20, y: 280, width: 220, height: 32)
+        openSettingsButton.frame = NSRect(x: 20, y: 245, width: 145, height: 32)
         openSettingsButton.title = "Open Claude Settings"
         openSettingsButton.bezelStyle = .rounded
         openSettingsButton.target = self
@@ -78,7 +78,7 @@ class AddAccountViewController: NSViewController {
         view.addSubview(openSettingsButton)
 
         // Parse from Clipboard Button
-        parseButton.frame = NSRect(x: 260, y: 280, width: 220, height: 32)
+        parseButton.frame = NSRect(x: 185, y: 245, width: 145, height: 32)
         parseButton.title = "Parse from Clipboard"
         parseButton.bezelStyle = .rounded
         parseButton.target = self
@@ -87,36 +87,36 @@ class AddAccountViewController: NSViewController {
 
         // Org ID Label
         let orgIdLabel = NSTextField(labelWithString: "Organization ID:")
-        orgIdLabel.frame = NSRect(x: 20, y: 225, width: 460, height: 16)
+        orgIdLabel.frame = NSRect(x: 20, y: 200, width: 310, height: 16)
         view.addSubview(orgIdLabel)
 
         // Org ID TextField
-        orgIdTextField.frame = NSRect(x: 20, y: 200, width: 460, height: 22)
+        orgIdTextField.frame = NSRect(x: 20, y: 175, width: 310, height: 22)
         orgIdTextField.placeholderString = "UUID (auto-filled from cURL)"
         view.addSubview(orgIdTextField)
 
         // Session Key Label
         let sessionKeyLabel = NSTextField(labelWithString: "Session Key:")
-        sessionKeyLabel.frame = NSRect(x: 20, y: 170, width: 460, height: 16)
+        sessionKeyLabel.frame = NSRect(x: 20, y: 145, width: 310, height: 16)
         view.addSubview(sessionKeyLabel)
 
         // Session Key TextField
-        sessionKeyTextField.frame = NSRect(x: 20, y: 145, width: 460, height: 22)
+        sessionKeyTextField.frame = NSRect(x: 20, y: 120, width: 310, height: 22)
         sessionKeyTextField.placeholderString = "sk-ant-... (auto-filled from cURL)"
         view.addSubview(sessionKeyTextField)
 
         // Account Name Label
         let nameLabel = NSTextField(labelWithString: "Account Name (optional):")
-        nameLabel.frame = NSRect(x: 20, y: 115, width: 460, height: 16)
+        nameLabel.frame = NSRect(x: 20, y: 90, width: 310, height: 16)
         view.addSubview(nameLabel)
 
         // Account Name TextField
-        accountNameTextField.frame = NSRect(x: 20, y: 90, width: 460, height: 22)
+        accountNameTextField.frame = NSRect(x: 20, y: 65, width: 310, height: 22)
         accountNameTextField.placeholderString = "e.g., Work Account, Personal Account"
         view.addSubview(accountNameTextField)
 
         // Status Label
-        statusLabel.frame = NSRect(x: 20, y: 65, width: 460, height: 24)
+        statusLabel.frame = NSRect(x: 20, y: 40, width: 310, height: 24)
         statusLabel.textColor = .systemRed
         statusLabel.isBezeled = false
         statusLabel.drawsBackground = false
@@ -124,14 +124,15 @@ class AddAccountViewController: NSViewController {
         view.addSubview(statusLabel)
 
         // Cancel Button
-        cancelButton.frame = NSRect(x: 20, y: 20, width: 100, height: 32)
+        cancelButton.frame = NSRect(x: 20, y: 10, width: 100, height: 28)
         cancelButton.title = "Cancel"
+        cancelButton.bezelStyle = .rounded
         cancelButton.target = self
         cancelButton.action = #selector(cancel)
         view.addSubview(cancelButton)
 
         // Add Button
-        addButton.frame = NSRect(x: 380, y: 20, width: 100, height: 32)
+        addButton.frame = NSRect(x: 230, y: 10, width: 100, height: 28)
         addButton.title = "Add"
         addButton.bezelStyle = .rounded
         addButton.target = self

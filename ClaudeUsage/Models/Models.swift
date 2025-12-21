@@ -5,8 +5,8 @@ import Foundation
 struct UsageData: Codable, Sendable {
     struct Period: Codable, Sendable {
         let utilization: Double
-        let resets_at: String?
+        let resetsAt: String?
     }
 
-    let five_hour: Period?
+    let fiveHour: Period?
 }
