@@ -85,14 +85,10 @@ class UsageManager {
     }
 
     private func scheduleOrUpdateResetNotification(for accountId: String, resetDate: Date) {
-        // Normalize reset date to the nearest minute to prevent duplicate notifications
-        // when API returns timestamps that fluctuate by a few seconds between calls
-        let secondsSince1970 = resetDate.timeIntervalSince1970
-        let normalizedSeconds = round(secondsSince1970 / 60.0) * 60.0
-        let normalizedResetDate = Date(timeIntervalSince1970: normalizedSeconds)
+        // resetDate is already normalized by caller to nearest minute
 
         // Skip if this account's reset time hasn't changed
-        if lastScheduledResetTime[accountId] == normalizedResetDate {
+        if lastScheduledResetTime[accountId] == resetDate {
             return
         }
 
@@ -103,18 +99,18 @@ class UsageManager {
                 scheduledResetNotifications.removeValue(forKey: oldResetTime)
             }
         }
-        lastScheduledResetTime[accountId] = normalizedResetDate
+        lastScheduledResetTime[accountId] = resetDate
 
         // Add this account to the set of accounts resetting at this time
-        if scheduledResetNotifications[normalizedResetDate] == nil {
-            scheduledResetNotifications[normalizedResetDate] = Set<String>()
+        if scheduledResetNotifications[resetDate] == nil {
+            scheduledResetNotifications[resetDate] = Set<String>()
         }
-        scheduledResetNotifications[normalizedResetDate]?.insert(accountId)
+        scheduledResetNotifications[resetDate]?.insert(accountId)
 
-        let accountCount = scheduledResetNotifications[normalizedResetDate]?.count ?? 0
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(normalizedResetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
+        let accountCount = scheduledResetNotifications[resetDate]?.count ?? 0
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(resetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
 
-        updateNotificationContent(for: normalizedResetDate)
+        updateNotificationContent(for: resetDate)
     }
 
     func setupForAccount(_ account: Account) {
@@ -285,6 +281,9 @@ class UsageManager {
         usageStates[index].resetProgress = calculateResetProgress(for: usageStates[index])
 
         logger.log("Account \(self.formatAccountId(accountId), privacy: .public): timer-only update, time remaining=\(timeLeft, privacy: .public)")
+
+        // Notify menu bar to refresh with updated countdown
+        onStateChange?()
     }
 
     private func updateState(for accountId: String, usage: UsageData) {
@@ -300,7 +299,11 @@ class UsageManager {
         let timeLeft: String
         let resetDate: Date?
         if let resetsAtString = period.resetsAt {
-            resetDate = parseDate(resetsAtString)
+            let rawResetDate = parseDate(resetsAtString)
+            // Normalize to nearest minute to match notification scheduling
+            let secondsSince1970 = rawResetDate.timeIntervalSince1970
+            let normalizedSeconds = round(secondsSince1970 / 60.0) * 60.0
+            resetDate = Date(timeIntervalSince1970: normalizedSeconds)
             timeLeft = timeUntilReset(resetDate!)
         } else {
             resetDate = nil
