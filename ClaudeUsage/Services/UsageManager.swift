@@ -17,7 +17,7 @@ struct UsageState: Identifiable {
     let id: String // Account ID (orgId)
     var percent: Int = 0
     var predictedPercent: Int? // Estimated percent based on current velocity
-    var resetProgress: Int? // When at 100%: percentage of reset window remaining (100 = just hit limit, 0 = about to reset)
+    var resetProgress: Int? // Percentage of reset window remaining (100 = just started window, 0 = about to reset)
     var timeUntilReset: String = "..."
     var resetDate: Date? // When the usage period resets
     var status: Status = .loading
@@ -339,7 +339,7 @@ class UsageManager {
             logger.log("Account \(self.formatAccountId(accountId), privacy: .public): predicted percent=\(predicted, privacy: .public)%")
         }
 
-        // Calculate reset progress (countdown when at 100%)
+        // Calculate reset progress (countdown to reset time)
         let resetProgress = calculateResetProgress(for: usageStates[index])
 
         usageStates[index].timeToFull = timeToFull
@@ -457,11 +457,10 @@ class UsageManager {
         return min(100, Int(predictedPercent))
     }
 
-    /// Calculate reset progress (countdown) when at 100%
-    /// Returns percentage of reset window remaining: 100 = just hit limit, 0 = about to reset
+    /// Calculate reset progress (countdown) for any usage level
+    /// Returns percentage of reset window remaining: 100 = just started window, 0 = about to reset
     private func calculateResetProgress(for state: UsageState) -> Int? {
-        guard state.percent >= 100,
-              let resetDate = state.resetDate else { return nil }
+        guard let resetDate = state.resetDate else { return nil }
 
         let now = Date()
         let timeRemaining = resetDate.timeIntervalSince(now)

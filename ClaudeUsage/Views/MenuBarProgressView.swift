@@ -53,12 +53,29 @@ struct StateIndicator: View {
                 .font(.system(size: 13, weight: .regular))
         case .success:
             if state.percent >= 100 {
-                // At 100%: show countdown indicator
-                CountdownIndicator(
-                    resetProgress: state.resetProgress ?? 100,
-                    size: circleSize
-                )
+                // At 100%: show only countdown indicator (full size)
+                if let resetProgress = state.resetProgress {
+                    CountdownIndicator(
+                        resetProgress: resetProgress,
+                        size: circleSize
+                    )
+                }
+            } else if let resetProgress = state.resetProgress {
+                // Below 100% with reset time: show both indicators overlaid
+                ZStack {
+                    CountdownIndicator(
+                        resetProgress: resetProgress,
+                        size: circleSize - (lineWidth * 2) - 2
+                    )
+                    CircularProgressIndicator(
+                        percent: state.percent,
+                        predictedPercent: state.predictedPercent,
+                        size: circleSize,
+                        lineWidth: lineWidth
+                    )
+                }
             } else {
+                // No reset time: show only usage indicator
                 CircularProgressIndicator(
                     percent: state.percent,
                     predictedPercent: state.predictedPercent,
@@ -126,10 +143,10 @@ struct CircularProgressIndicator: View {
     }
 }
 
-// MARK: - Countdown Indicator (At 100%, waiting for reset)
+// MARK: - Countdown Indicator (Time until reset)
 
 struct CountdownIndicator: View {
-    let resetProgress: Int // 100 = just hit limit, 0 = about to reset
+    let resetProgress: Int // 100 = just started reset window, 0 = about to reset
     let size: CGFloat
 
     private var countdownProgress: CGFloat {
@@ -138,13 +155,13 @@ struct CountdownIndicator: View {
 
     var body: some View {
         ZStack {
-            // Background circle (light blue)
+            // Background circle
             Circle()
-                .fill(Color.blue.opacity(0.2))
+                .fill(Color.primary.opacity(0.2))
 
             // Filled pie wedge (shrinks as reset approaches)
             PieSlice(progress: countdownProgress)
-                .fill(Color.blue.opacity(0.5))
+                .fill(Color.primary.opacity(0.5))
                 .rotationEffect(.degrees(-90))
                 .animation(.easeInOut(duration: 0.3), value: countdownProgress)
         }
@@ -397,4 +414,100 @@ private struct AnimatedCountdownPreview: View {
 
 #Preview("Animated Countdown") {
     AnimatedCountdownPreview()
+}
+
+#Preview("Overlaid Indicators") {
+    VStack(spacing: 20) {
+        Text("Normal + Reset Time (Overlaid)")
+            .font(.headline)
+
+        // Menu bar size examples
+        HStack(spacing: 10) {
+            StateIndicator(
+                state: UsageState(
+                    id: "1",
+                    percent: 25,
+                    predictedPercent: 40,
+                    resetDate: Date().addingTimeInterval(4 * 60 * 60), // 4h remaining
+                    status: .success
+                ),
+                circleSize: 16,
+                lineWidth: 3
+            )
+            StateIndicator(
+                state: UsageState(
+                    id: "2",
+                    percent: 50,
+                    predictedPercent: 70,
+                    resetDate: Date().addingTimeInterval(3 * 60 * 60), // 3h remaining
+                    status: .success
+                ),
+                circleSize: 16,
+                lineWidth: 3
+            )
+            StateIndicator(
+                state: UsageState(
+                    id: "3",
+                    percent: 75,
+                    predictedPercent: 90,
+                    resetDate: Date().addingTimeInterval(2 * 60 * 60), // 2h remaining
+                    status: .success
+                ),
+                circleSize: 16,
+                lineWidth: 3
+            )
+            StateIndicator(
+                state: UsageState(
+                    id: "4",
+                    percent: 95,
+                    predictedPercent: nil,
+                    resetDate: Date().addingTimeInterval(1 * 60 * 60), // 1h remaining
+                    status: .success
+                ),
+                circleSize: 16,
+                lineWidth: 3
+            )
+        }
+
+        Divider()
+
+        Text("Comparison: With vs Without Reset Time")
+            .font(.headline)
+
+        HStack(spacing: 40) {
+            VStack {
+                Text("With Reset Time")
+                    .font(.subheadline)
+                StateIndicator(
+                    state: UsageState(
+                        id: "5",
+                        percent: 60,
+                        predictedPercent: 75,
+                        resetDate: Date().addingTimeInterval(2.5 * 60 * 60), // 2.5h remaining
+                        status: .success
+                    ),
+                    circleSize: 16,
+                    lineWidth: 3
+                )
+            }
+
+            VStack {
+                Text("Without Reset Time")
+                    .font(.subheadline)
+                StateIndicator(
+                    state: UsageState(
+                        id: "6",
+                        percent: 60,
+                        predictedPercent: 75,
+                        resetDate: nil,
+                        status: .success
+                    ),
+                    circleSize: 16,
+                    lineWidth: 3
+                )
+            }
+        }
+    }
+    .padding()
+    .background(Color.black.opacity(0.1))
 }
