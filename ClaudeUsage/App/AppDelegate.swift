@@ -2,6 +2,11 @@ import AppKit
 import Foundation
 import SwiftUI
 import UserNotifications
+import os
+
+// MARK: - Logging
+
+private let logger = Logger(subsystem: "com.andrewfinke.Usage", category: "AppDelegate")
 
 // MARK: - App Delegate
 
@@ -39,6 +44,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         for account in accounts {
             usageManager?.setupForAccount(account)
         }
+
+        // Register for sleep/wake notifications
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(willSleep),
+            name: NSWorkspace.willSleepNotification,
+            object: nil
+        )
+
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(didWake),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
     }
 
     private func requestNotificationPermissions() {
@@ -49,6 +69,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
                 print("Notification permission error: \(error)")
             }
         }
+    }
+
+    // MARK: - Sleep/Wake Handlers
+
+    @objc private func willSleep() {
+        logger.log("System will sleep")
+        usageManager?.isPaused = true
+    }
+
+    @objc private func didWake() {
+        logger.log("System did wake")
+        usageManager?.isPaused = false
     }
 
     // MARK: - UNUserNotificationCenterDelegate

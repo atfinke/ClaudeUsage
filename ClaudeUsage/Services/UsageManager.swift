@@ -47,6 +47,17 @@ class UsageManager {
     // Track last scheduled reset time per account to avoid redundant notification updates
     private var lastScheduledResetTime: [String: Date] = [:]
 
+    var isPaused: Bool = false {
+        didSet {
+            if isPaused {
+                logger.log("Usage tracking paused")
+            } else {
+                logger.log("Usage tracking resumed")
+                refreshAllAccounts()
+            }
+        }
+    }
+
     // MARK: Constants
 
     /// How often to poll the API when close to reset time (30s).
@@ -252,6 +263,10 @@ class UsageManager {
     }
 
     private func shouldSkipNetworkRequest(for accountId: String) -> Bool {
+        if isPaused {
+            return true
+        }
+
         guard let state = usageStates.first(where: { $0.id == accountId }) else {
             return false // Default to making requests if no state available
         }
