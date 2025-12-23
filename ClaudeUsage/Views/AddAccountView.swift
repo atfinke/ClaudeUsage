@@ -1,5 +1,5 @@
+import SwiftUI
 import AppKit
-import Foundation
 
 // MARK: - cURL Parser
 
@@ -38,196 +38,173 @@ struct CurlParser {
     }
 }
 
-// MARK: - Add Account Dialog
+// MARK: - Add Account View
 
-class AddAccountViewController: NSViewController {
-    private let orgIdTextField = NSTextField()
-    private let sessionKeyTextField = NSTextField()
-    private let accountNameTextField = NSTextField()
-    private let statusLabel = NSTextField()
-    private let addButton = NSButton()
-    private let cancelButton = NSButton()
-    private let parseButton = NSButton()
-    private let openSettingsButton = NSButton()
+struct AddAccountView: View {
+    @State private var orgId = ""
+    @State private var sessionKey = ""
+    @State private var accountName = ""
+    @State private var statusMessage = ""
+    @State private var statusColor: Color = .red
+    @State private var isValidating = false
 
-    var onAccountAdded: ((Account) -> Void)?
-    private var isValidating = false
+    var onAccountAdded: (Account) -> Void
 
-    override func loadView() {
-        view = NSView()
-        view.frame = NSRect(x: 0, y: 0, width: 350, height: 340)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Instructions
+            Text("Get the 'usage' request cURL from Inspector, then paste it below")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-        setupUI()
+            // Buttons
+            HStack(spacing: 12) {
+                Button("Open Claude Settings") {
+                    openSettings()
+                }
+
+                Button("Parse from Clipboard") {
+                    parseCurl()
+                }
+            }
+
+            // Org ID
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Organization ID:")
+                    .font(.system(size: 13))
+
+                TextField("UUID (auto-filled from cURL)", text: $orgId)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            // Session Key
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Session Key:")
+                    .font(.system(size: 13))
+
+                TextField("sk-ant-... (auto-filled from cURL)", text: $sessionKey)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            // Account Name
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Account Name (optional):")
+                    .font(.system(size: 13))
+
+                TextField("e.g., Work Account, Personal Account", text: $accountName)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            // Status Message
+            if !statusMessage.isEmpty {
+                Text(statusMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(statusColor)
+            }
+
+            Spacer(minLength: 1)
+
+            // Add Button
+            HStack {
+                Spacer()
+
+                Button("Add") {
+                    validateAndAdd()
+                }
+                .disabled(isValidating)
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 350, height: 380)
     }
 
-    private func setupUI() {
-        // Instructions
-        let instructionsLabel = NSTextField(labelWithString: "Get the 'usage' request cURL from Inspector, then paste it below")
-        instructionsLabel.font = NSFont.systemFont(ofSize: 12)
-        instructionsLabel.textColor = .secondaryLabelColor
-        instructionsLabel.frame = NSRect(x: 20, y: 290, width: 310, height: 32)
-        instructionsLabel.cell?.wraps = true
-        view.addSubview(instructionsLabel)
-
-        // Open Settings Button
-        openSettingsButton.frame = NSRect(x: 20, y: 245, width: 145, height: 32)
-        openSettingsButton.title = "Open Claude Settings"
-        openSettingsButton.bezelStyle = .rounded
-        openSettingsButton.target = self
-        openSettingsButton.action = #selector(openSettings)
-        view.addSubview(openSettingsButton)
-
-        // Parse from Clipboard Button
-        parseButton.frame = NSRect(x: 185, y: 245, width: 145, height: 32)
-        parseButton.title = "Parse from Clipboard"
-        parseButton.bezelStyle = .rounded
-        parseButton.target = self
-        parseButton.action = #selector(parseCurl)
-        view.addSubview(parseButton)
-
-        // Org ID Label
-        let orgIdLabel = NSTextField(labelWithString: "Organization ID:")
-        orgIdLabel.frame = NSRect(x: 20, y: 200, width: 310, height: 16)
-        view.addSubview(orgIdLabel)
-
-        // Org ID TextField
-        orgIdTextField.frame = NSRect(x: 20, y: 175, width: 310, height: 22)
-        orgIdTextField.placeholderString = "UUID (auto-filled from cURL)"
-        view.addSubview(orgIdTextField)
-
-        // Session Key Label
-        let sessionKeyLabel = NSTextField(labelWithString: "Session Key:")
-        sessionKeyLabel.frame = NSRect(x: 20, y: 145, width: 310, height: 16)
-        view.addSubview(sessionKeyLabel)
-
-        // Session Key TextField
-        sessionKeyTextField.frame = NSRect(x: 20, y: 120, width: 310, height: 22)
-        sessionKeyTextField.placeholderString = "sk-ant-... (auto-filled from cURL)"
-        view.addSubview(sessionKeyTextField)
-
-        // Account Name Label
-        let nameLabel = NSTextField(labelWithString: "Account Name (optional):")
-        nameLabel.frame = NSRect(x: 20, y: 90, width: 310, height: 16)
-        view.addSubview(nameLabel)
-
-        // Account Name TextField
-        accountNameTextField.frame = NSRect(x: 20, y: 65, width: 310, height: 22)
-        accountNameTextField.placeholderString = "e.g., Work Account, Personal Account"
-        view.addSubview(accountNameTextField)
-
-        // Status Label
-        statusLabel.frame = NSRect(x: 20, y: 40, width: 310, height: 24)
-        statusLabel.textColor = .systemRed
-        statusLabel.isBezeled = false
-        statusLabel.drawsBackground = false
-        statusLabel.isEditable = false
-        view.addSubview(statusLabel)
-
-        // Cancel Button
-        cancelButton.frame = NSRect(x: 20, y: 10, width: 100, height: 28)
-        cancelButton.title = "Cancel"
-        cancelButton.bezelStyle = .rounded
-        cancelButton.target = self
-        cancelButton.action = #selector(cancel)
-        view.addSubview(cancelButton)
-
-        // Add Button
-        addButton.frame = NSRect(x: 230, y: 10, width: 100, height: 28)
-        addButton.title = "Add"
-        addButton.bezelStyle = .rounded
-        addButton.target = self
-        addButton.action = #selector(validateAndAdd)
-        addButton.isEnabled = true
-        view.addSubview(addButton)
-    }
-
-    @objc private func openSettings() {
+    private func openSettings() {
         if let url = URL(string: "https://claude.ai/settings/usage") {
             NSWorkspace.shared.open(url)
         }
     }
 
-    @objc private func parseCurl() {
-        // Get clipboard content
+    private func parseCurl() {
         guard let clipboardString = NSPasteboard.general.string(forType: .string) else {
-            statusLabel.stringValue = "Nothing found in clipboard"
-            statusLabel.textColor = .systemRed
+            statusMessage = "Nothing found in clipboard"
+            statusColor = .red
             return
         }
 
-        let (orgId, sessionKey) = CurlParser.parse(clipboardString)
+        let (parsedOrgId, parsedSessionKey) = CurlParser.parse(clipboardString)
 
-        if let orgId = orgId {
-            orgIdTextField.stringValue = orgId
+        if let parsedOrgId = parsedOrgId {
+            orgId = parsedOrgId
         } else {
-            statusLabel.stringValue = "Could not extract Org ID from clipboard"
-            statusLabel.textColor = .systemOrange
+            statusMessage = "Could not extract Org ID from clipboard"
+            statusColor = .orange
         }
 
-        if let sessionKey = sessionKey {
-            sessionKeyTextField.stringValue = sessionKey
+        if let parsedSessionKey = parsedSessionKey {
+            sessionKey = parsedSessionKey
         } else {
-            statusLabel.stringValue = "Could not extract Session Key from clipboard"
-            statusLabel.textColor = .systemOrange
+            statusMessage = "Could not extract Session Key from clipboard"
+            statusColor = .orange
         }
 
-        if orgId != nil && sessionKey != nil {
-            statusLabel.stringValue = "Parsed successfully!"
-            statusLabel.textColor = .systemGreen
-            // Focus on account name field after successful parse
-            self.view.window?.makeFirstResponder(accountNameTextField)
+        if parsedOrgId != nil && parsedSessionKey != nil {
+            statusMessage = "Parsed successfully!"
+            statusColor = .green
         }
     }
 
-    @objc private func validateAndAdd() {
+    private func validateAndAdd() {
         guard !isValidating else { return }
 
-        let orgId = orgIdTextField.stringValue.trimmingCharacters(in: .whitespaces)
-        let sessionKey = sessionKeyTextField.stringValue.trimmingCharacters(in: .whitespaces)
-        let accountName = accountNameTextField.stringValue.trimmingCharacters(in: .whitespaces)
+        let trimmedOrgId = orgId.trimmingCharacters(in: .whitespaces)
+        let trimmedSessionKey = sessionKey.trimmingCharacters(in: .whitespaces)
+        let trimmedAccountName = accountName.trimmingCharacters(in: .whitespaces)
 
-        guard !orgId.isEmpty else {
-            statusLabel.stringValue = "Please enter Organization ID"
-            statusLabel.textColor = .systemRed
+        guard !trimmedOrgId.isEmpty else {
+            statusMessage = "Please enter Organization ID"
+            statusColor = .red
             return
         }
 
-        guard !sessionKey.isEmpty else {
-            statusLabel.stringValue = "Please enter Session Key"
-            statusLabel.textColor = .systemRed
+        guard !trimmedSessionKey.isEmpty else {
+            statusMessage = "Please enter Session Key"
+            statusColor = .red
             return
         }
 
         isValidating = true
-        addButton.isEnabled = false
-        statusLabel.stringValue = "Validating..."
-        statusLabel.textColor = .systemOrange
+        statusMessage = "Validating..."
+        statusColor = .orange
 
         Task {
             do {
-                let client = ClaudeUsageClient(orgId: orgId, sessionKey: sessionKey)
+                let client = ClaudeUsageClient(orgId: trimmedOrgId, sessionKey: trimmedSessionKey)
                 let _: UsageData = try await client.fetchUsage()
 
                 await MainActor.run {
-                    var account = Account(id: orgId, sessionKey: sessionKey)
-                    if !accountName.isEmpty {
-                        account.name = accountName
+                    var account = Account(id: trimmedOrgId, sessionKey: trimmedSessionKey)
+                    if !trimmedAccountName.isEmpty {
+                        account.name = trimmedAccountName
                     }
-                    self.onAccountAdded?(account)
-                    self.view.window?.close()
+                    onAccountAdded(account)
                 }
             } catch {
                 await MainActor.run {
-                    self.statusLabel.stringValue = "Validation failed: \(error.localizedDescription)"
-                    self.statusLabel.textColor = .systemRed
-                    self.isValidating = false
-                    self.addButton.isEnabled = true
+                    statusMessage = "Validation failed: \(error.localizedDescription)"
+                    statusColor = .red
+                    isValidating = false
                 }
             }
         }
     }
+}
 
-    @objc private func cancel() {
-        view.window?.close()
+// MARK: - Preview
+
+#Preview {
+    AddAccountView { account in
+        print("Account added: \(account.id)")
     }
 }

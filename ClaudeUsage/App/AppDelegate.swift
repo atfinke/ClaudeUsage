@@ -151,14 +151,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
         window.center()
         window.isReleasedWhenClosed = false
 
-        let controller = AddAccountViewController()
-        window.contentViewController = controller
-
-        controller.onAccountAdded = { [weak self] account in
+        let addAccountView = AddAccountView { [weak self, weak window] account in
             self?.accountManager?.addOrUpdateAccount(orgId: account.id, sessionKey: account.sessionKey, name: account.name)
             self?.usageManager?.setupForAccount(account)
             self?.updateMenuBar()
+            window?.close()
         }
+
+        let controller = NSHostingController(rootView: addAccountView)
+        window.contentViewController = controller
 
         NSApplication.shared.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
