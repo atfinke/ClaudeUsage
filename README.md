@@ -2,6 +2,18 @@
 
 A lightweight macOS menu bar app to monitor Claude AI usage across multiple accounts.
 
+![Screenshot](screenshot.png)
+
+## Installation
+
+Download the latest version from [Releases](https://github.com/atfinke/ClaudeUsage/releases) and move `ClaudeUsage.app` to Applications.
+
+**First time opening:** macOS will block the app because it's not code signed. To fix:
+
+```bash
+xattr -cr /path/to/ClaudeUsage.app
+```
+
 ## Adding Accounts
 
 1. Click menu bar → "Add Account"
