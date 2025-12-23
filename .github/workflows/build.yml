@@ -1,0 +1,52 @@
+name: Build macOS App
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Select Xcode version
+      run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+    - name: Build app
+      run: |
+        xcodebuild -project ClaudeUsage.xcodeproj \
+          -scheme ClaudeUsage \
+          -configuration Release \
+          -derivedDataPath build \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          CODE_SIGNING_ALLOWED=NO
+
+    - name: Create app bundle
+      run: |
+        cd build/Build/Products/Release
+        zip -r ClaudeUsage.zip ClaudeUsage.app
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ClaudeUsage-macOS
+        path: build/Build/Products/Release/ClaudeUsage.zip
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/Build/Products/Release/ClaudeUsage.zip
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
