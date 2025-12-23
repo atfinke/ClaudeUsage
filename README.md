@@ -2,7 +2,7 @@
 
 A lightweight macOS menu bar app to monitor Claude AI usage across multiple accounts.
 
-![Screenshot](screenshot.png)
+<img src="screenshot.png" width="246" alt="ClaudeUsage Menu Bar App Screenshot">
 
 ## Installation
 
