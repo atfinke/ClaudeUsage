@@ -277,9 +277,16 @@ class UsageManager {
         }
 
         let timeRemaining = resetDate.timeIntervalSince(Date())
-        if timeRemaining <= 0 {
-            return false // Period has reset, need to fetch new data
+
+        // Use a 5-second buffer to handle notification timing imprecision
+        // If we're within 5 seconds of reset, force a refresh even if notification fires slightly early
+        if timeRemaining <= 5 {
+            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): NEAR RESET - forcing network request, timeRemaining=\(String(format: "%.3f", timeRemaining), privacy: .public)s")
+            return false // Near or past reset, need to fetch new data
         }
+
+        let shouldSkip = state.percent >= 100
+        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): shouldSkip=\(shouldSkip, privacy: .public), timeRemaining=\(String(format: "%.1f", timeRemaining), privacy: .public)s, percent=\(state.percent, privacy: .public)%")
 
         // Skip network requests if usage is at 100% (no need for frequent updates)
         return state.percent >= 100
