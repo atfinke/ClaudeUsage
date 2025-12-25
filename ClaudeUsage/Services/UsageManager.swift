@@ -40,7 +40,7 @@ class UsageManager {
     var usageStates: [UsageState] = []
     var onStateChange: (() -> Void)?
     private var clients: [String: ClaudeUsageClient] = [:]
-    private var refreshTimers: [String: Timer] = [:]
+    private var globalRefreshTimer: Timer?
     private var accountManager: AccountManager?
     // Scheduled notifications: Maps reset date -> set of account IDs that reset at that time
     private var scheduledResetNotifications: [Date: Set<String>] = [:]
@@ -51,8 +51,11 @@ class UsageManager {
         didSet {
             if isPaused {
                 logger.log("Usage tracking paused")
+                globalRefreshTimer?.invalidate()
+                globalRefreshTimer = nil
             } else {
                 logger.log("Usage tracking resumed")
+                startGlobalRefreshTimer()
                 refreshAllAccounts()
             }
         }
@@ -60,19 +63,9 @@ class UsageManager {
 
     // MARK: Constants
 
-    /// How often to poll the API when close to reset time (30s).
-    /// Used when time until reset is below `idleThreshold`. Also the fallback
-    /// when reset date is unknown.
+    /// How often the global timer fires to refresh all accounts (30s).
+    /// Timer aligns to :01 and :31 second marks to catch resets at :00.
     private let activeRefreshInterval: TimeInterval = 30
-
-    /// How often to poll the API when far from reset time (60s).
-    /// Used when time until reset exceeds `idleThreshold`.
-    private let idleRefreshInterval: TimeInterval = 60
-
-    /// Threshold for switching between active and idle polling (2 min).
-    /// Below this: poll every `activeRefreshInterval` for responsive updates.
-    /// Above this: poll every `idleRefreshInterval` to reduce API calls.
-    private let idleThreshold: TimeInterval = 120
 
     /// Window of historical data points used to calculate usage velocity (5 min).
     /// Longer windows smooth out spikes but are slower to reflect rate changes.
@@ -133,17 +126,25 @@ class UsageManager {
             usageStates.append(UsageState(id: account.id))
         }
 
-        // Start refresh cycle
-        startRefreshTimer(for: account.id)
+        // Start global timer if not already running
+        if globalRefreshTimer == nil {
+            startGlobalRefreshTimer()
+        }
+
+        // Fetch initial usage
         updateUsage(for: account.id)
     }
 
     func removeAccount(_ accountId: String) {
-        refreshTimers[accountId]?.invalidate()
-        refreshTimers.removeValue(forKey: accountId)
         clients.removeValue(forKey: accountId)
         usageStates.removeAll { $0.id == accountId }
         lastScheduledResetTime.removeValue(forKey: accountId)
+
+        // Stop global timer if no accounts remain
+        if usageStates.isEmpty {
+            globalRefreshTimer?.invalidate()
+            globalRefreshTimer = nil
+        }
 
         // Remove account from all scheduled notifications and update them
         for (resetDate, var accountIds) in scheduledResetNotifications {
@@ -208,32 +209,52 @@ class UsageManager {
         }
     }
 
-    private func startRefreshTimer(for accountId: String) {
-        refreshTimers[accountId]?.invalidate()
+    /// Starts a global timer that fires at :01 and :31 of each minute.
+    /// This aligns all account polling to the same schedule, and ensures
+    /// polling happens 1 second after reset times (which fire at :00).
+    private func startGlobalRefreshTimer() {
+        globalRefreshTimer?.invalidate()
 
-        let interval = refreshInterval(for: accountId)
-        let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
+        // Calculate time until the next :01 or :31 second mark
+        let now = Date()
+        let calendar = Calendar.current
+        let currentSecond = calendar.component(.second, from: now)
+
+        let nextAlignedSecond: Int
+        if currentSecond < 1 {
+            nextAlignedSecond = 1
+        } else if currentSecond < 31 {
+            nextAlignedSecond = 31
+        } else {
+            nextAlignedSecond = 61 // Will roll over to :01 of next minute
+        }
+
+        let secondsUntilNext = nextAlignedSecond - currentSecond
+        let firstFireDate = now.addingTimeInterval(TimeInterval(secondsUntilNext))
+
+        logger.log("Starting global refresh timer, first fire in \(secondsUntilNext, privacy: .public)s at \(firstFireDate, privacy: .public)")
+
+        // Use a one-shot timer for the first fire, then start the repeating timer
+        globalRefreshTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(secondsUntilNext), repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.updateUsage(for: accountId)
+                guard let self = self else { return }
+                self.refreshAllAccounts()
+                self.startRepeatingRefreshTimer()
             }
         }
-        timer.tolerance = interval * 0.1 // 10% tolerance for battery efficiency
-        refreshTimers[accountId] = timer
     }
 
-    private func refreshInterval(for accountId: String) -> TimeInterval {
-        guard let state = usageStates.first(where: { $0.id == accountId }),
-              let resetDate = state.resetDate else {
-            return activeRefreshInterval
-        }
+    private func startRepeatingRefreshTimer() {
+        globalRefreshTimer?.invalidate()
 
-        let timeRemaining = resetDate.timeIntervalSince(Date())
-        if timeRemaining > idleThreshold {
-            return idleRefreshInterval
-        } else {
-            return activeRefreshInterval
+        logger.log("Starting repeating refresh timer (30s interval)")
+
+        globalRefreshTimer = Timer.scheduledTimer(withTimeInterval: activeRefreshInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refreshAllAccounts()
+            }
         }
+        globalRefreshTimer?.tolerance = 1 // 1 second tolerance
     }
 
     func updateUsage(for accountId: String) {
@@ -268,27 +289,20 @@ class UsageManager {
         }
 
         guard let state = usageStates.first(where: { $0.id == accountId }) else {
-            return false // Default to making requests if no state available
+            return false
         }
 
-        // Don't skip if timer has reached 0 (period has reset)
         guard let resetDate = state.resetDate else {
             return false
         }
 
+        // Don't skip if within 1 second of reset (accounts for timer drift)
         let timeRemaining = resetDate.timeIntervalSince(Date())
-
-        // Use a 5-second buffer to handle notification timing imprecision
-        // If we're within 5 seconds of reset, force a refresh even if notification fires slightly early
-        if timeRemaining <= 5 {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): NEAR RESET - forcing network request, timeRemaining=\(String(format: "%.3f", timeRemaining), privacy: .public)s")
-            return false // Near or past reset, need to fetch new data
+        if timeRemaining <= 1 {
+            return false
         }
 
-        let shouldSkip = state.percent >= 100
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): shouldSkip=\(shouldSkip, privacy: .public), timeRemaining=\(String(format: "%.1f", timeRemaining), privacy: .public)s, percent=\(state.percent, privacy: .public)%")
-
-        // Skip network requests if usage is at 100% (no need for frequent updates)
+        // Skip network requests if usage is at 100% (just update countdown timer locally)
         return state.percent >= 100
     }
 
@@ -372,9 +386,6 @@ class UsageManager {
         usageStates[index].resetProgress = resetProgress
         usageStates[index].status = .success
         usageStates[index].error = nil
-
-        // Restart timer with appropriate interval based on new data
-        startRefreshTimer(for: accountId)
 
         onStateChange?()
     }
