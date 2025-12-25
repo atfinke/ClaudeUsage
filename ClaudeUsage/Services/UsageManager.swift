@@ -47,6 +47,12 @@ class UsageManager {
     // Track last scheduled reset time per account to avoid redundant notification updates
     private var lastScheduledResetTime: [String: Date] = [:]
 
+    // Debounce state for batching UI updates
+    private var pendingRefreshAccounts: Set<String> = []
+    private var completedRefreshAccounts: Set<String> = []
+    private var debounceTask: Task<Void, Never>?
+    private let debounceTimeout: TimeInterval = 5
+
     var isPaused: Bool = false {
         didSet {
             if isPaused {
@@ -167,9 +173,46 @@ class UsageManager {
     }
 
     func refreshAllAccounts() {
+        // Setup debounce tracking
+        pendingRefreshAccounts = Set(usageStates.map { $0.id })
+        completedRefreshAccounts.removeAll()
+        debounceTask?.cancel()
+
+        logger.log("🔄 Debounce: starting refresh for \(self.pendingRefreshAccounts.count, privacy: .public) accounts")
+
+        // Start timeout task
+        debounceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                logger.log("🔄 Debounce: timeout fired, flushing")
+                self?.flushDebouncedUpdate()
+            }
+        }
+
         for state in usageStates {
             updateUsage(for: state.id)
         }
+    }
+
+    private func markRefreshComplete(for accountId: String) {
+        completedRefreshAccounts.insert(accountId)
+        logger.log("🔄 Debounce: account complete \(self.completedRefreshAccounts.count, privacy: .public)/\(self.pendingRefreshAccounts.count, privacy: .public)")
+
+        // Check if all pending accounts have completed
+        if completedRefreshAccounts.isSuperset(of: pendingRefreshAccounts) {
+            logger.log("🔄 Debounce: all accounts complete, flushing")
+            flushDebouncedUpdate()
+        }
+    }
+
+    private func flushDebouncedUpdate() {
+        debounceTask?.cancel()
+        debounceTask = nil
+        pendingRefreshAccounts.removeAll()
+        completedRefreshAccounts.removeAll()
+        logger.log("🔄 Debounce: UI update triggered")
+        onStateChange?()
     }
 
     private func updateNotificationContent(for resetDate: Date) {
@@ -318,8 +361,8 @@ class UsageManager {
 
         logger.log("Account \(self.formatAccountId(accountId), privacy: .public): timer-only update, time remaining=\(timeLeft, privacy: .public)")
 
-        // Notify menu bar to refresh with updated countdown
-        onStateChange?()
+        // Mark as complete for debounced UI update
+        markRefreshComplete(for: accountId)
     }
 
     private func updateState(for accountId: String, usage: UsageData) {
@@ -387,7 +430,7 @@ class UsageManager {
         usageStates[index].status = .success
         usageStates[index].error = nil
 
-        onStateChange?()
+        markRefreshComplete(for: accountId)
     }
 
     private func updateState(for accountId: String, error: String) {
@@ -396,7 +439,7 @@ class UsageManager {
         usageStates[index].status = .error
         usageStates[index].error = error
 
-        onStateChange?()
+        markRefreshComplete(for: accountId)
     }
 
     private func parseDate(_ dateString: String) -> Date {
