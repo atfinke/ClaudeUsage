@@ -56,11 +56,11 @@ class UsageManager {
     var isPaused: Bool = false {
         didSet {
             if isPaused {
-                logger.log("Usage tracking paused")
+                logger.debug("Usage tracking paused")
                 globalRefreshTimer?.invalidate()
                 globalRefreshTimer = nil
             } else {
-                logger.log("Usage tracking resumed")
+                logger.debug("Usage tracking resumed")
                 startGlobalRefreshTimer()
                 refreshAllAccounts()
             }
@@ -118,7 +118,7 @@ class UsageManager {
         scheduledResetNotifications[resetDate]?.insert(accountId)
 
         let accountCount = scheduledResetNotifications[resetDate]?.count ?? 0
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(resetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
+        logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): scheduling reset notification for \(resetDate, privacy: .public) (\(accountCount, privacy: .public) total accounts)")
 
         updateNotificationContent(for: resetDate)
     }
@@ -162,7 +162,7 @@ class UsageManager {
                     scheduledResetNotifications.removeValue(forKey: resetDate)
                     let identifier = "usage-reset-\(Int(resetDate.timeIntervalSince1970))"
                     UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [identifier])
-                    logger.log("Cancelled notification for \(resetDate, privacy: .public) (no accounts remaining)")
+                    logger.debug("Cancelled notification for \(resetDate, privacy: .public) (no accounts remaining)")
                 } else {
                     // Update the notification with remaining accounts
                     scheduledResetNotifications[resetDate] = accountIds
@@ -178,14 +178,14 @@ class UsageManager {
         completedRefreshAccounts.removeAll()
         debounceTask?.cancel()
 
-        logger.log("🔄 Debounce: starting refresh for \(self.pendingRefreshAccounts.count, privacy: .public) accounts")
+        logger.debug("Debounce: starting refresh for \(self.pendingRefreshAccounts.count, privacy: .public) accounts")
 
         // Start timeout task
         debounceTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
             guard !Task.isCancelled else { return }
             await MainActor.run {
-                logger.log("🔄 Debounce: timeout fired, flushing")
+                logger.debug("Debounce: timeout fired, flushing")
                 self?.flushDebouncedUpdate()
             }
         }
@@ -197,11 +197,11 @@ class UsageManager {
 
     private func markRefreshComplete(for accountId: String) {
         completedRefreshAccounts.insert(accountId)
-        logger.log("🔄 Debounce: account complete \(self.completedRefreshAccounts.count, privacy: .public)/\(self.pendingRefreshAccounts.count, privacy: .public)")
+        logger.debug("Debounce: account complete \(self.completedRefreshAccounts.count, privacy: .public)/\(self.pendingRefreshAccounts.count, privacy: .public)")
 
         // Check if all pending accounts have completed
         if completedRefreshAccounts.isSuperset(of: pendingRefreshAccounts) {
-            logger.log("🔄 Debounce: all accounts complete, flushing")
+            logger.debug("Debounce: all accounts complete, flushing")
             flushDebouncedUpdate()
         }
     }
@@ -211,7 +211,7 @@ class UsageManager {
         debounceTask = nil
         pendingRefreshAccounts.removeAll()
         completedRefreshAccounts.removeAll()
-        logger.log("🔄 Debounce: UI update triggered")
+        logger.debug("Debounce: UI update triggered")
         onStateChange?()
     }
 
@@ -247,7 +247,7 @@ class UsageManager {
 
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
-                logger.error("Failed to update notification: \(error.localizedDescription, privacy: .public)")
+                logger.debug("Failed to update notification: \(error.localizedDescription, privacy: .public)")
             }
         }
     }
@@ -275,7 +275,7 @@ class UsageManager {
         let secondsUntilNext = nextAlignedSecond - currentSecond
         let firstFireDate = now.addingTimeInterval(TimeInterval(secondsUntilNext))
 
-        logger.log("Starting global refresh timer, first fire in \(secondsUntilNext, privacy: .public)s at \(firstFireDate, privacy: .public)")
+        logger.debug("Starting global refresh timer, first fire in \(secondsUntilNext, privacy: .public)s at \(firstFireDate, privacy: .public)")
 
         // Use a one-shot timer for the first fire, then start the repeating timer
         globalRefreshTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(secondsUntilNext), repeats: false) { [weak self] _ in
@@ -290,7 +290,7 @@ class UsageManager {
     private func startRepeatingRefreshTimer() {
         globalRefreshTimer?.invalidate()
 
-        logger.log("Starting repeating refresh timer (30s interval)")
+        logger.debug("Starting repeating refresh timer (30s interval)")
 
         globalRefreshTimer = Timer.scheduledTimer(withTimeInterval: activeRefreshInterval, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
@@ -359,7 +359,7 @@ class UsageManager {
         // Recalculate reset progress (countdown) since it changes over time
         usageStates[index].resetProgress = calculateResetProgress(for: usageStates[index])
 
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): timer-only update, time remaining=\(timeLeft, privacy: .public)")
+        logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): timer-only update, time remaining=\(timeLeft, privacy: .public)")
 
         // Mark as complete for debounced UI update
         markRefreshComplete(for: accountId)
@@ -395,7 +395,7 @@ class UsageManager {
         }
 
         // Log the fetched data
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): usage=\(percent, privacy: .public)%, resets=\(timeLeft, privacy: .public)")
+        logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): usage=\(percent, privacy: .public)%, resets=\(timeLeft, privacy: .public)")
 
         // Add data point to history
         let dataPoint = UsageDataPoint(timestamp: Date(), percent: percent)
@@ -412,13 +412,13 @@ class UsageManager {
         // Calculate time to 100% AFTER state is updated
         let timeToFull = calculateTimeToFull(for: &usageStates[index])
         if let timeToFull = timeToFull {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): estimated time to full=\(timeToFull, privacy: .public)")
+            logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): estimated time to full=\(timeToFull, privacy: .public)")
         }
 
         // Calculate predicted percent based on velocity
         let predictedPercent = calculatePredictedPercent(for: usageStates[index])
         if let predicted = predictedPercent {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): predicted percent=\(predicted, privacy: .public)%")
+            logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): predicted percent=\(predicted, privacy: .public)%")
         }
 
         // Calculate reset progress (countdown to reset time)
@@ -435,7 +435,7 @@ class UsageManager {
 
     private func updateState(for accountId: String, error: String) {
         guard let index = usageStates.firstIndex(where: { $0.id == accountId }) else { return }
-        logger.error("Account \(self.formatAccountId(accountId), privacy: .public): error=\(error, privacy: .public)")
+        logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): error=\(error, privacy: .public)")
         usageStates[index].status = .error
         usageStates[index].error = error
 
@@ -504,14 +504,14 @@ class UsageManager {
         }
 
         guard let percentPerSecond = calculateVelocity(for: state) else {
-            logger.log("Account \(self.formatAccountId(accountId), privacy: .public): insufficient data for time-to-full calculation")
+            logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): insufficient data for time-to-full calculation")
             return nil
         }
 
         let percentRemaining = Double(100 - percent)
         let secondsToFull = percentRemaining / percentPerSecond
 
-        logger.log("Account \(self.formatAccountId(accountId), privacy: .public): time-to-full calculation: velocity=\(String(format: "%.3f", percentPerSecond), privacy: .public)%/s, secondsToFull=\(String(format: "%.0f", secondsToFull), privacy: .public)s")
+        logger.debug("Account \(self.formatAccountId(accountId), privacy: .public): time-to-full calculation: velocity=\(String(format: "%.3f", percentPerSecond), privacy: .public)%/s, secondsToFull=\(String(format: "%.0f", secondsToFull), privacy: .public)s")
 
         guard secondsToFull > 0 && secondsToFull < Double(Int.max) else { return nil }
 

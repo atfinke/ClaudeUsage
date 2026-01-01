@@ -29,10 +29,10 @@ final class KeychainManager: Sendable {
         // Add new item
         let status = SecItemAdd(query as CFDictionary, nil)
         if status != errSecSuccess {
-            logger.error("Error saving \(key, privacy: .public): Status code \(status, privacy: .public)")
+            logger.debug("Error saving \(key, privacy: .public): Status code \(status, privacy: .public)")
             return false
         }
-        logger.log("Successfully saved \(key, privacy: .public)")
+        logger.debug("Successfully saved \(key, privacy: .public)")
         return true
     }
 
@@ -50,11 +50,11 @@ final class KeychainManager: Sendable {
 
         guard status == errSecSuccess else {
             if status != errSecItemNotFound {
-                logger.error("Error loading \(key, privacy: .public): Status code \(status, privacy: .public)")
+                logger.debug("Error loading \(key, privacy: .public): Status code \(status, privacy: .public)")
             }
             return nil
         }
-        logger.log("Successfully loaded \(key, privacy: .public)")
+        logger.debug("Successfully loaded \(key, privacy: .public)")
         return result as? Data
     }
 
@@ -67,10 +67,10 @@ final class KeychainManager: Sendable {
 
         let status = SecItemDelete(query as CFDictionary)
         if status != errSecSuccess && status != errSecItemNotFound {
-            logger.error("Error deleting \(key, privacy: .public): Status code \(status, privacy: .public)")
+            logger.debug("Error deleting \(key, privacy: .public): Status code \(status, privacy: .public)")
             return false
         }
-        logger.log("Successfully deleted \(key, privacy: .public)")
+        logger.debug("Successfully deleted \(key, privacy: .public)")
         return true
     }
 }

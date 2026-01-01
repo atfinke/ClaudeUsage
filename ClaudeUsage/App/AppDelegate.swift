@@ -74,12 +74,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDele
     // MARK: - Sleep/Wake Handlers
 
     @objc private func willSleep() {
-        logger.log("System will sleep")
+        logger.debug("System will sleep")
         usageManager?.isPaused = true
     }
 
     @objc private func didWake() {
-        logger.log("System did wake")
+        logger.debug("System did wake")
         usageManager?.isPaused = false
     }
 
