@@ -24,14 +24,14 @@ struct CircularProgressIndicator: View {
                 .inset(by: lineWidth / 2)
                 .stroke(Color.primary.opacity(0.3), lineWidth: lineWidth)
 
-            // Predicted progress arc (ghost/shadow)
+            // Predicted progress arc (ghost/shadow, dashed)
             if predictedProgress > 0 {
                 Circle()
                     .inset(by: lineWidth / 2)
                     .trim(from: 0, to: predictedProgress)
                     .stroke(
-                        Color.primary.opacity(0.5),
-                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round)
+                        Color.primary.opacity(0.8),
+                        style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, dash: [0, 4])
                     )
                     .rotationEffect(.degrees(-90))
                     .animation(.easeInOut(duration: 0.3), value: predictedProgress)
