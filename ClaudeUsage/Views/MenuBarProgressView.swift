@@ -77,9 +77,8 @@ struct StateIndicator: View {
                 )
             }
         case .error:
-            Text("ERR")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.red)
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 15))
         }
     }
 }
