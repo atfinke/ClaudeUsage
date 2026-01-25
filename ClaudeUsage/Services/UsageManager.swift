@@ -25,6 +25,10 @@ struct UsageState: Identifiable {
     var timeToFull: String? // ETA to 100%
     var history: [UsageDataPoint] = [] // Last 5 minutes of data
 
+    // Weekly limit (seven_day) - optional, only some accounts have this
+    var weeklyPercent: Int?
+    var weeklyTimeUntilReset: String?
+
     enum Status {
         case loading
         case success
@@ -429,6 +433,20 @@ class UsageManager {
         usageStates[index].resetProgress = resetProgress
         usageStates[index].status = .success
         usageStates[index].error = nil
+
+        // Parse weekly limit if present
+        if let sevenDay = usage.sevenDay {
+            usageStates[index].weeklyPercent = Int(sevenDay.utilization)
+            if let weeklyResetsAt = sevenDay.resetsAt {
+                let weeklyResetDate = parseDate(weeklyResetsAt)
+                usageStates[index].weeklyTimeUntilReset = timeUntilReset(weeklyResetDate)
+            } else {
+                usageStates[index].weeklyTimeUntilReset = nil
+            }
+        } else {
+            usageStates[index].weeklyPercent = nil
+            usageStates[index].weeklyTimeUntilReset = nil
+        }
 
         markRefreshComplete(for: accountId)
     }

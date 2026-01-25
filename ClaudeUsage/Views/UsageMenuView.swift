@@ -57,6 +57,28 @@ struct UsageMenuView: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
+
+                    // Weekly usage (if available)
+                    if let weeklyPercent = state.weeklyPercent {
+                        HStack(spacing: 4) {
+                            Circle()
+                                .fill(weeklyUsageColor(weeklyPercent))
+                                .frame(width: 8, height: 8)
+                            Text("Weekly: \(weeklyPercent)%")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                        }
+                        if let weeklyReset = state.weeklyTimeUntilReset {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 8))
+                                    .foregroundStyle(.purple)
+                                Text("Resets in: \(weeklyReset)")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
             case .error:
                 HStack(spacing: 4) {
@@ -76,7 +98,14 @@ struct UsageMenuView: View {
     }
 
     private var usageColor: Color {
-        let percent = state.percent
+        colorForPercent(state.percent)
+    }
+
+    private func weeklyUsageColor(_ percent: Int) -> Color {
+        colorForPercent(percent)
+    }
+
+    private func colorForPercent(_ percent: Int) -> Color {
         if percent < 50 {
             return .green
         } else if percent < 80 {

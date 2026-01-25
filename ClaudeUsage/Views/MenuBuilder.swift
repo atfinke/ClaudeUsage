@@ -45,8 +45,16 @@ class MenuBuilder {
 
                     // Calculate height based on content
                     let baseHeight: CGFloat = 60
-                    let hasTimeToFull = state.timeToFull != nil
-                    let height = hasTimeToFull ? baseHeight + 18 : baseHeight
+                    var height = baseHeight
+                    if state.timeToFull != nil {
+                        height += 18
+                    }
+                    if state.weeklyPercent != nil {
+                        height += 18  // Weekly percent line
+                        if state.weeklyTimeUntilReset != nil {
+                            height += 18  // Weekly reset line
+                        }
+                    }
 
                     hostingView.frame = NSRect(x: 0, y: 0, width: 200, height: height)
 

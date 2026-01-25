@@ -9,4 +9,5 @@ struct UsageData: Codable, Sendable {
     }
 
     let fiveHour: Period?
+    let sevenDay: Period?
 }
